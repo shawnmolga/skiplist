@@ -7,13 +7,16 @@
 
 #define BOUND_OFFSET = 2
 
+#include "skiplistNode.h"
+
+
 template <typename _Key, typename _Data>
-struct skiplist{
+class skiplist{
     skiplistNode* head;
     skiplistNode* tail;
     int levels;
 
-    skiplist(levels){
+    skiplist(int levels){
         this.head = nullptr;
         this.tail = nullptr;
         this.levels = levels;

@@ -1,0 +1,32 @@
+#IncludeRegexLine: ^[ 	]*[#%][ 	]*(include|import)[ 	]*[<"]([^">]+)([">])
+
+#IncludeRegexScan: ^.*$
+
+#IncludeRegexComplain: ^$
+
+#IncludeRegexTransform: 
+
+/Users/shawnmolga/CLionProjects/skiplist/main.cpp
+iostream
+-
+skiplist.h
+/Users/shawnmolga/CLionProjects/skiplist/skiplist.h
+skiplist.cpp
+/Users/shawnmolga/CLionProjects/skiplist/skiplist.cpp
+
+/Users/shawnmolga/CLionProjects/skiplist/skiplist.cpp
+skiplist.h
+/Users/shawnmolga/CLionProjects/skiplist/skiplist.h
+skiplistNode.h
+/Users/shawnmolga/CLionProjects/skiplist/skiplistNode.h
+
+/Users/shawnmolga/CLionProjects/skiplist/skiplist.h
+skiplistNode.h
+/Users/shawnmolga/CLionProjects/skiplist/skiplistNode.h
+
+/Users/shawnmolga/CLionProjects/skiplist/skiplistNode.cpp
+skiplistNode.h
+/Users/shawnmolga/CLionProjects/skiplist/skiplistNode.h
+
+/Users/shawnmolga/CLionProjects/skiplist/skiplistNode.h
+

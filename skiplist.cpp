@@ -6,10 +6,9 @@
 
 
 /*a skiplist stores a set of key-value pairs, ordered according to the keys.*/
-struct skiplist {
 
     /****************MEMORY LIBRARY******************/
-    boolean isNodeDeleted(skiplist * node){
+    bool isNodeDeleted(skiplist<key_t key, value_t val> * node){
         //returns true if last bit of the pointer is 1.
         // o.w returns false
         //todo
@@ -152,4 +151,4 @@ struct skiplist {
     }
 
 
-};
+
