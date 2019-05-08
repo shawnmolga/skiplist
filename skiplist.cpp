@@ -9,7 +9,7 @@
 struct skiplist {
 
     /****************MEMORY LIBRARY******************/
-    boolean isNodeDeleted(skiplist * node){
+    bool isNodeDeleted(skiplist * node){
         //returns true if last bit of the pointer is 1.
         // o.w returns false
         //todo
@@ -107,9 +107,12 @@ struct skiplist {
         newNode = skiplistNode(height); //todo - function AllocNode. Also, what is "height"?
         newNode.key = key;
         do {
-            //todo - locate preds
+            skiplistNode preds[this.levels];
+            skiplistNode succs[this.levels];
+            skiplistNode del = NULL;
+            locatePreds(key, preds, succs, del);
             newNode.next[0] = succs[0];
-        } while(!atomic_compare_exchange_strong(getNextNode(pred,0), succ[0], newNode ));
+        } while(!atomic_compare_exchange_strong(getNextNode(preds[0],0), getNextNode(succs[0], 0), newNode ));
 
         int i = 1;
         while (i < height){ //insert node at higher levels
@@ -129,10 +132,10 @@ struct skiplist {
         newNode.inserting = false; //allow batch deletion past this node
     }
 
-    void locatePreds(key_t k){
+    void locatePreds(key_t k, skiplistNode& preds[], skiplistNode& succs[], skiplistNode& del  ){
         int i = this.levels - 1;
         skiplistNode pred = this.head;
-        skiplistNode del = NULL;
+//        skiplistNode del = NULL;
         skipListNode preds[];
         while (i >= 0){
             skiplistNode cur = getNextNode(pred, i);
@@ -148,7 +151,6 @@ struct skiplist {
             succs[i] = cur;
             i--;
         }
-        return preds , succs, del; //todo  -what the actual fuck? tuple?
     }
 
 

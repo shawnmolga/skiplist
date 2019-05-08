@@ -20,8 +20,21 @@ struct skiplist{
     }
 
     _Data deleteMin();
+    void locatePreds(key_t k, skiplistNode& preds[], skiplistNode& succs[], skiplistNode& del);
+    void Insert(key_t key, value_t val);
+    void Restructure();
+    bool removePrefix(int level, skiplistNode & node);
+    bool logicalDelete(skiplistNode & node);
+    skiplistNode getNextNode(skiplistNode * node, int level);
+    bool isNodeDeleted(skiplist * node);
 
-};
+
+
+
+
+
+
+    };
 
 
 #endif //SKIPLIST_SKIPLIST_H
