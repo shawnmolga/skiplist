@@ -33,7 +33,6 @@ class skiplist{
     void locatePreds(_Key k, skiplistNode<_Key,_Data> * preds, skiplistNode<_Key,_Data> * succs, skiplistNode<_Key,_Data>& del);
     void Insert(_Key key, _Data val);
     void Restructure();
-    bool removePrefix(int level, skiplistNode<_Key, _Data> & node);
     bool logicalDelete(skiplistNode<_Key, _Data> & node);
     skiplistNode<_Key,_Data> getNextNode(skiplistNode<_Key, _Data> * node, int level);
     bool isNodeDeleted(skiplist * node);

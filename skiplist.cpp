@@ -4,15 +4,13 @@
 #include "skiplist.h"
 #include "skiplistNode.h"
 
-using namespace std;
 
 /*a skiplist stores a set of key-value pairs, ordered according to the keys.*/
 
 
-
-        bool skiplist::logicalDelete(skiplistNode<int, int> &node) {
+        bool skiplist<int, int>::logicalDelete(skiplistNode<int, int> &node) {
             //todo - atomic?
-            bool previous_value = node.getIsNextNodeDeleted();
+            bool previous_value = node.getIsNextNodeDeleted(0);//todo - check getIsNextNodeDeleted input - level 0?
             node.setIsNextNodeDeleted(true);
             return previous_value;
         }
@@ -24,15 +22,15 @@ using namespace std;
                 skiplistNode<int, int> h = getNextNode(this->head->next[i], 0);
                 skiplistNode<int, int> cur = getNextNode(pred->next[i - 1], 0);
 //            if (!h.isNextNodeDeleted){
-                if (h.next[0].isNextNodeDeleted()) {//todo - fix this
+                if (!(h.next[0])->getIsNextNodeDeleted(0)) {//todo - fix this
                     i--;
                     continue;
                 }
-                if (*cur.next[0].isNextNodeDeleted()) {
+                if ((cur.next[0])->getIsNextNodeDeleted(0)) {
                     pred = &cur;
-                    cur = getNextNode(pred->next[i - 1]);
+                    cur = *pred->next[i-1]->getNextNode(0);
                 }
-                if (removePrefix(i, pred->next[i])) {
+                if ((i, pred->next[i])) {
                     i--;
                 }
             }
