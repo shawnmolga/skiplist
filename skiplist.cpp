@@ -37,13 +37,13 @@
         }
 
         int skiplist::deleteMin() {
-            skiplistNode<int, int>*  x = this.head;
+            skiplistNode<int, int>*  x = this->head;
             int offset = 0;
             skiplistNode<int, int> * newHead = nullptr;
             skiplistNode<int, int> observedHead = getNextNode(x,0);
             do {
-                skiplistNode<int, int> next = getNextNode();
-                bool isNextNodeDeleted = isNodeDeleted(x.next[0]);
+                skiplistNode<int, int> * next = x->getNextNode(0);
+                bool isNextNodeDeleted = x->next[0]->getIsNodeDeleted(0);
                 if (next == *this->tail) { //if queue is empty - return
                     return -1; //todo - fix this
                 }
@@ -52,17 +52,17 @@
                     //todo  - delete x?
                 }
                 //todo - FAO
-                skiplistNode<int, int> nextNode = getNextNode(x.next[0]);
-                bool deleted = std::atomic_fetch_or(&nextNode, true);//todo - check this. should change only LAST BIT
-                // bool deleted = logicalDelete(x);
+                skiplistNode<int, int> * nextNode = x->next[0]->getNextNode(0);
+//                bool deleted = std::atomic_fetch_or(&nextNode, true);//todo - check this. should change only LAST BIT
+                bool deleted = this->logicalDelete(*x);
                 offset++;
                 x = next;
             } while (deleted);
 
             //todo - exclusive access
-            int v = x.value;
+            int v = x->value;
 
-            if (offset < this. BOUND_OFFSET) {
+            if (offset < this->BOUND_OFFSET) {
                 return v;
             }
             if (newHead == 0) {
