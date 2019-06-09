@@ -4,6 +4,8 @@
 #include <thread>
 #include <cstring>
 #include <vector>
+#include <pthread.h>
+
 
 using namespace std;
 
@@ -31,7 +33,10 @@ public:
 
 
     bool getIsNextNodeDeleted(int level) {
+//        std::cout << "in getIsNextNodeDeleted" << std::endl;
         uintptr_t address = (uintptr_t) this->next[level];
+//        std::cout << "after this>next[level]" << std::endl;
+
         uintptr_t isNextDeleted = address & 1;
         if (isNextDeleted)
             return true;
@@ -66,27 +71,40 @@ public:
     int BOUND_OFFSET = 4;//todo - wtf
 
     skiplist(int levels) {
-        this->tail = new skiplistNode<_Key, _Data>(10, 0, LEVELS);
+        this->tail = new skiplistNode<_Key, _Data>(10000, 0, LEVELS);
         this->tail->isInserting = false;
-        this->head = new skiplistNode<_Key, _Data>(-10, 0, LEVELS, this->tail);
+        this->head = new skiplistNode<_Key, _Data>(-10000, 0, LEVELS, this->tail);
         this->head->isInserting = false;
     }
 
 
     void locatePreds(_Key k, skiplistNode<_Key, _Data> *preds[], skiplistNode<_Key, _Data> *succs[],
                      skiplistNode<_Key, _Data> * del) {
+//        std::cout << "in locate_preds" << std::endl;
         int i = this->levels - 1;
         skiplistNode<_Key, _Data> *pred = this->head;
         while (i >= 0) {
+//            std::cout << "in while. i = " << i << std::endl;
             skiplistNode<_Key, _Data> *cur = pred->next[i];
+//            std::cout << "11111" << std::endl;
             int isCurDeleted = pred->getIsNextNodeDeleted(i);
-            while (cur->key < k || cur->getIsNextNodeDeleted(1) || ((i == 0) && isCurDeleted)) {
+//            std::cout << "after isNextNodeDeleted" << std::endl;
+
+            bool isNextDeleted = cur->getIsNextNodeDeleted(0) ;
+            while (cur->key < k || isNextDeleted || ((i == 0) && isCurDeleted)) {
+//                std::cout << "beginning of while "<<std::endl;
                 if ((isCurDeleted) && i == 0) //if there is a level 0 node deleted without a "delete flag" on:
                     del = cur;
                 pred = cur;
                 cur = pred->next[i];
-                isCurDeleted = pred->getIsNextNodeDeleted(i);
+                isCurDeleted = pred->getIsNextNodeDeleted(0);
+//                std::cout << "before getIsNextNodeDeleted number two" << std::endl;
+//                this->printSkipList();
+                isNextDeleted = cur ->getIsNextNodeDeleted(0);
+//                std::cout << "end of while" << std::endl;
+
             }
+//            std::cout <<  "after while " << std::endl;
             preds[i] = pred;
             succs[i] = cur;
             i--;
@@ -162,16 +180,19 @@ public:
     }
 
     void insert(_Key key, _Data val) {
+//        std::cout << "inserting" << std::endl;
         int height = getRandomHeight() ;
-//        skiplistNode<_Key,_Data> * newNode = new skiplistNode<_Key, _Data>(key, val); //todo - function AllocNode. Also, what is "height"?
         skiplistNode<_Key,_Data> * newNode = new skiplistNode<_Key,_Data>(key, val, height);
         skiplistNode<_Key, _Data> * preds[this->levels];
         skiplistNode<_Key, _Data> * succs[this->levels];
         skiplistNode<_Key, _Data> * del = nullptr;
         do {
             this->locatePreds(key, preds, succs, del);
+//            std::cout << "after locate preds" << std::endl;
             newNode->next[0] = succs[0];
         } while (!__sync_bool_compare_and_swap(&preds[0]->next[0], succs[0], newNode));
+
+//        std::cout << "after first while" << std::endl;
 
         int i = 1;
         while (i < height) { //insert node at higher levels (bottoms up)
@@ -187,11 +208,13 @@ public:
             if (__sync_bool_compare_and_swap(&(preds[i]->next[i]), succs[i], newNode)) {
                 i++; // if successful - ascend to next level
             } else {
+//                std::cout << "in else" << std::endl;
                 this->locatePreds(key, preds, succs, del);
                 if (succs[0] != newNode)
                     break; //new has been deleted
             }
         }
+//        std::cout << "done inserting " << std::endl;
         newNode->isInserting = false; //allow batch deletion past this node
     }
 
@@ -216,30 +239,90 @@ public:
 
 };
 
+std::vector<pthread_t> ts(8);
+
+skiplist<int, int> q = skiplist<int, int>(5);
+
+
+
+void * add_thread(void *id)
+{
+    std::cout << "in add_thread" << std::endl;
+    long base = 30 * (long)id;
+    for(int i = 0; i < 30; i++) {
+        std::cout<< "adding " << i << std::endl;
+        q.insert(base + i + 1, base + i + 1);
+        std::cout << "done adding " << i << std::endl;
+    }
+    return NULL;
+
+}
+
+
+void test_parallel_add()
+{
+    std::cout << "test parallel add, " << 8 << " threads"<<std::endl;
+    for (long i = 0; i < 8; i ++) {
+        std::cout << "before creatae thread " << i << std::endl;
+        pthread_create(&ts[i], NULL, add_thread, (void *) i);
+        std::cout << "created thread " << i << std::endl;
+    }
+    for (long i = 0; i < 8; i ++)
+        (void)pthread_join (ts[i], NULL);
+
+    unsigned long new_, old = 0;
+    int PER_THREAD = 30;
+    for (long i = 0; i < 8 * PER_THREAD; i++) {
+        new_ = (long)q.deleteMin();
+        assert (old < new_);
+        old = new_;
+    }
+    std::cout<<"OK"<<std::endl;
+
+}
+
+
+//void test_parallel_del()
+//{
+//
+//    std::cout << "test parallel del, " << 8 << " threads"<<std::endl;
+//    int PER_THREAD = 30;
+//    for (long i = 0; i < 8 * PER_THREAD; i++)
+//        insert(pq, i+1, i+1);
+//
+//    for (long i = 0; i < nthreads; i ++)
+//        pthread_create (&ts[i], NULL, removemin_thread, (void *)i);
+//
+//    for (long i = 0; i < nthreads; i ++)
+//        (void)pthread_join (ts[i], NULL);
+//
+//    std::cout<<"OK"<<std::endl;
+//}
+
+
 
 int main() {
 
-    skiplist<int, int> q = skiplist<int, int>(5);
-    for (int i = 0; i < 7; i ++){
-        q.insert(i,i);
-        q.insert(i-7,i-7);
-//        std::thread(q.insert, i, i);
-    }
 
-    q.printSkipList();
-
-
-    int value = q.deleteMin();
-    std::cout<<"value = " << value << std::endl;
-
-    int value2 = q.deleteMin();
-    std::cout<<"value2 = " << value2 << std::endl;
-
-//    q.insert(3, 3);
-//    q.insert(2,2);
-
+//    for (int i = 0; i < 7; i ++){
+//        q.insert(i,i);
+//        q.insert(i-7,i-7);
+//       std::thread(q.insert, i, i);
+//    }
+//
+//    q.printSkipList();
+//
+//
+//    int value = q.deleteMin();
+//    std::cout<<"value = " << value << std::endl;
+//
+//    int value2 = q.deleteMin();
+//    std::cout<<"value2 = " << value2 << std::endl;
 
 
     std::cout << "Hello, World!" << std::endl;
+
+    test_parallel_add();
+
     return 0;
 }
