@@ -7,7 +7,7 @@
 #include <pthread.h>
 #include <mutex>
 #include<bits/stdc++.h>
-
+#include <string>
 
 
 using namespace std;
@@ -36,11 +36,7 @@ public:
 
 
     bool getIsNextNodeDeleted(int level) {
-//        std::cout << "in getIsNextNodeDeleted" << std::endl;
         uintptr_t address = (uintptr_t) this->next[level];
-
-//        std::cout << "after this>next[level]" << std::endl;
-
         uintptr_t isNextDeleted = address & 1;
         if (isNextDeleted)
             return true;
@@ -75,9 +71,9 @@ public:
     int BOUND_OFFSET = 4;//todo - wtf
 
     skiplist(int levels) {
-        this->tail = new skiplistNode(10000, 0, LEVELS);
+        this->tail = new skiplistNode(1000000, 0, LEVELS);
         this->tail->isInserting = false;
-        this->head = new skiplistNode(-10000, 0, LEVELS, this->tail);
+        this->head = new skiplistNode(-1000000, 0, LEVELS, this->tail);
         this->head->isInserting = false;
     }
 
@@ -141,7 +137,7 @@ public:
         }
     }
 
-    int deleteMin() {
+    skiplistNode * deleteMin() {
         skiplistNode * x = this->head;
         int offset = 0;
         skiplistNode * newHead = nullptr;
@@ -152,7 +148,7 @@ public:
             next = x->getNextNodeUnmarked(0);
             isNextNodeDeleted = x->getIsNextNodeDeleted(0);
             if (x->getNextNodeUnmarked(0) == this->tail) { //if queue is empty - return
-                return -1000;
+                return nullptr;
             }
             if (x->isInserting && !newHead) {
                 newHead = x; //head may not surpass pending insert, inserting node is "newhead".
@@ -165,7 +161,7 @@ public:
         int v = x->value;
 
         if (offset < this->BOUND_OFFSET) {//if the offset is big enough - try to perform memory reclamation
-            return v;
+            return x;
         }
         if (newHead == 0) {
             newHead = x;
@@ -180,11 +176,10 @@ public:
                 cur = next;
             }
         }
-        return v;
+        return x;
     }
 
     void insert(int key, int val) {
-//        std::cout << "inserting" << std::endl;
         int height = getRandomHeight() ;
         skiplistNode * newNode = new skiplistNode(key, val, height);
         skiplistNode * preds[this->levels];
@@ -192,11 +187,8 @@ public:
         skiplistNode * del = nullptr;
         do {
             this->locatePreds(key, preds, succs, del);
-//            std::cout << "after locate preds" << std::endl;
             newNode->next[0] = succs[0];
         } while (!__sync_bool_compare_and_swap(&preds[0]->next[0], succs[0], newNode));
-
-//        std::cout << "after first while" << std::endl;
 
         int i = 1;
         while (i < height) { //insert node at higher levels (bottoms up)
@@ -228,11 +220,15 @@ public:
         for (int i = 0; i < this->levels-1; i ++){
             std::cout << "level " << i << " , head ";
             skiplistNode * next = node->next[i];
-            bool isDone = true;
-            while (isDone){
+            bool to_continue = true;
+            while (to_continue){
                 std::cout << next->key << " " ;
                 next = next->next[i];
-                isDone = next->next[0];
+                std::cout << "is next null???" << std::endl;
+                if (!next) {
+                    std::cout << "next is null" << std::endl;
+                }
+                to_continue = next;
             }
             std::cout << std::endl;
         }
@@ -254,7 +250,7 @@ struct Vertex {
 
 class Graph {
 public:
-    int source;
+    int source;//why is this needed?
     vector <Vertex*> vertices;
     std::mutex** offerLock; //used to prevent multiple threads from concurrently changing the priority (distance) to the same node.
     Graph(){std::cout << "hi linker" << std::endl; };
@@ -276,9 +272,7 @@ bool finished_work(bool done[], int size){
     for (int i = 0; i < size; i++)
     {
         if(!done[i])
-        {
             return false;
-        }
     }
     return true;
 }
@@ -286,9 +280,8 @@ bool finished_work(bool done[], int size){
 void relax(skiplist* queue, int* distances, std::mutex **offersLocks, Offer **offers, Vertex * vertex, int alt) {
     Offer* curr_offer;
 
+    ////critical section/////
     offersLocks[vertex->index]->lock();
-
-
     if (alt < distances[vertex->index]) {
         curr_offer = offers[vertex->index];
         if (curr_offer == NULL || alt < curr_offer->dist ){
@@ -299,43 +292,118 @@ void relax(skiplist* queue, int* distances, std::mutex **offersLocks, Offer **of
         }
     }
     offersLocks[vertex->index]->unlock();
+    /////end of critical section/////
+
+    //todo - delete previous offer??
+
 }
 
-void * add_thread(void *id)
-{
-    std::cout << "in add_thread" << std::endl;
-    long base = 30 * (long)id;
-    for(int i = 0; i < 30; i++) {
-        std::cout<< "adding " << i << std::endl;
-        q.insert(base + i + 1, base + i + 1);
-        std::cout << "done adding " << i << std::endl;
+class threadInput{
+public:
+
+    bool* done;
+    skiplist *queue;
+    Graph *G;
+    int* distances;
+    std::mutex **offersLocks;
+    std::mutex **distancesLocks;
+    Offer **offers;
+    int tid;
+    threadInput(bool * done, skiplist * queue, Graph * G, int * distances, std::mutex ** offersLocks, std::mutex ** distancesLocks, Offer ** offers, int tid){
+        this->done = done;
+        this->queue = queue;
+        this->G = G;
+        this->distances = distances;
+        this->offersLocks = offersLocks;
+        this->distancesLocks = distancesLocks;
+        this->offers = offers;
+        this->tid = tid;
     }
+};
+
+
+
+
+
+void * parallel_Dijkstra(void * void_input) {
+    threadInput * input = (threadInput * ) void_input;
+    bool * done = input->done;
+    skiplist * queue = input->queue;
+    Graph * G = input->G;
+    int * distances = input->distances;
+    std::mutex ** offersLocks = input->offersLocks;
+    std::mutex ** distancesLocks = input->distancesLocks;
+    Offer ** offers = input->offers;
+    int tid = input->tid;
+    Vertex *curr_v;
+    Vertex *neighbor;
+    bool explore = true;
+    int curr_dist;
+    int alt;
+    int weight;
+
+    std::cout << "in parallel_Dijkstra. Thread # " << tid << std::endl;
+    while (!done[tid]) {
+        skiplistNode * min_offer_int = queue->deleteMin();
+        std::cout << "in parallel_Dijkstra. Thread # " << tid << ". min_offer - " << min_offer_int->key << std::endl;
+        if (*min_offer_int == nullptr) {//todo- what does this do????
+            std::endl << "min offer is nullpter" <<std::endl;
+            done[tid] = true; // 1 is done. change cp to num of thread.
+            if (!finished_work(done, 3)) {//todo - what is the second input var?
+                done[tid] = false;
+                continue;
+            } else { // all threads finished work terminate process
+                for (int i = 0; i < G->vertices.size(); i++) {
+                    std::cout << distances[i] << "\n";
+                }
+                return NULL;
+            }
+        }
+
+        std::endl << "before critical section" << std::endl;
+        ////critical section - updating distance vector//////
+        distancesLocks[min_offer_int->value]->lock();
+        std::cout << "thread # " << tid << " in critical section" << std::endl;
+        if (curr_dist < distances[min_offer_int->value]) {
+            distances[min_offer_int->value] = curr_dist; //todo remove field dist from vertex
+            explore = true;
+        } else {
+            explore = false;
+        }
+        distancesLocks[min_offer_int->value]->unlock();
+        ////end of critical section/////
+
+        if (explore) {
+            for (int i = 0; i < (curr_v->neighbors.size()); i++) {
+                neighbor = curr_v->neighbors[i].first;
+                weight = curr_v->neighbors[i].second;
+                alt = curr_dist + weight;
+                relax(queue, distances, offersLocks, offers, neighbor, alt);
+            }
+        }
+    }//end of while
     return NULL;
+}//end of function
 
-}
-void bla(void* i){
 
-}
-
-void dijkstra_shortest_path(Graph *G, int c, int p) {
-    int cp=c*p;
-    skiplist * queue = new skiplist(5);
+void dijkstra_shortest_path(Graph *G) {
+    std::cout << "in dijkstra_shortest_path" <<std::endl;
+    int num_of_theads = 10; //todo - optimize this
+    skiplist * queue = new skiplist(5); //global
     Offer *min_offer;
     Vertex *curr_v;
-
-
-    int distances[G->vertices.size()];
-    Offer *offers[G->vertices.size()];
-    bool done[p]; //
+    int distances[G->vertices.size()]; //global
+    Offer *offers[G->vertices.size()];//global - why do we need both lists????
+    bool done[num_of_theads]; //how many threads?????
     std::mutex **offersLocks = new std::mutex *[G->vertices.size()];
     std::mutex **distancesLocks = new std::mutex *[G->vertices.size()];
 
-    for (int i=0; i<cp; i++){ //todo check
+    for (int i=0; i<num_of_theads; i++){ //todo check
         done[i] = false;
     }
-    //init
+    //init distances and offers (why are there 2?)
     for (int i = 0; i < G->vertices.size(); i++) {
-        distances[i] = INT_MAX;
+        distances[i] = -1;
         offers[i] =NULL;
     }
 
@@ -346,160 +414,36 @@ void dijkstra_shortest_path(Graph *G, int c, int p) {
     }
 
     // initialization
-    distances[G->source] = INT_MAX; //todo check
+    std::cout<< "G->source = " << G->source << std::endl;//todo  -delete this
+    distances[G->source] = -1; //todo check
 
-    // todo remove later
-    for (int i = 1; i < (G->vertices.size()); i++) { //todo why 1 not 0?
-        curr_v = G->vertices[i];
-        curr_v->dist = INT_MAX;
-//        if (curr_v->index != G->source) {
-//            distances[curr_v->index] = INT_MAX; //change distances to v->dist for all nodes in G. We do need distances since we remove nodes from the queue and we need to save the minimal distance. we also need to sync between the queue and distances[].
-//            curr_v->dist = INT_MAX;
-//        }
+    queue->insert(0, 0);//insert first element to queue. First element: key (dist) = 0, value(index) = 0 (this is the soure)
+
+    pthread_t threads[1];
+    for(int i=0; i < 1; i++) {
+        threadInput * input = new threadInput(done, queue, G, distances, offersLocks, distancesLocks, offers, i);
+        std::cout<<"before creating thread # " << i << std::endl;
+        pthread_create(&threads[i], NULL, &parallel_Dijkstra, (void *)input);
     }
 
-
-    min_offer = new Offer{G->vertices[G->source], 0};
-    queue->insert(min_offer->vertex->dist, min_offer->vertex->index);
-
-    // <bool[], Multiqueue*, int, Graph*,int*, std::mutex**, std::mutex**, Offer**, int>
-    for(int i=0; i< p; i++) {
-        pthread_t thread;
-        int NUM_THREADS=2;
-        pthread_t threads[NUM_THREADS];
-        int rc = pthread_create(&threads[i], NULL, add_thread, (void *) i);
-
-//        int rc = pthread_create(&threads[i], NULL, bla, (void *)i);
-//        pthread_create(&thread, NULL, bla, (void*)i);
-//        pthread_create(&thread, NULL, parallel_Dijkstra, done, queue, p, G, distances, offersLocks, distancesLocks, offers, i);
-    }
-
+    for (long i = 0; i < 1; i ++)
+        (void)pthread_join (threads[i], NULL);
 
 }
 
-
-//template<bool [], class Multiqueue, int, class Graph, int*, void*, void*, class Offer, int>
-void parallel_Dijkstra(bool* done, skiplist *queue, int p, Graph *G, int* distances,
-                       std::mutex **offersLocks, std::mutex **distancesLocks,  Offer **offers, int tid) {
-    Offer *min_offer;
-    Vertex *curr_v;
-    Vertex *neighbor;
-    bool explore = true;
-    int curr_dist;
-    int alt;
-    int weight;
-
-    while (!done[tid]) {
-        int min_offer_int = queue->deleteMin();
-        if (!min_offer_int) {
-            done[tid] = true; // 1 is done. change cp to num of thread.
-            if (!finished_work(done, p)) {
-                done[tid] = false;
-                continue;
-            } else { // all threads finished work terminate process
-                for (int i = 0; i < G->vertices.size(); i++) {
-                    std::cout << distances[i] << "\n";
-                }
-                return;
-            }
-        }
-
-        curr_v = min_offer->vertex;
-        curr_dist = min_offer->dist;
-
-        distancesLocks[curr_v->index]->lock();
-        if (curr_dist < distances[curr_v->index]) {
-            distances[curr_v->index] = curr_dist; //todo remove field dist from vertex
-            explore = true;
-        } else {
-            explore = false;
-        }
-        distancesLocks[curr_v->index]->unlock();
-        if (explore) {
-            for (int i = 0; i < (curr_v->neighbors.size()); i++) {
-                neighbor = curr_v->neighbors[i].first;
-                weight = curr_v->neighbors[i].second;
-                alt = curr_dist + weight;
-                relax(queue, distances, offersLocks, offers, neighbor, alt);
-            }
-        }
-
-
-    }
-}
 
 //////////////////////////////////////////////////////////////////
 
 
-
-
-
-
-std::vector<pthread_t> ts(8);
-
-
-
-void test_parallel_add()
-{
-    std::cout << "test parallel add, " << 8 << " threads"<<std::endl;
-    for (long i = 0; i < 8; i ++) {
-        std::cout << "before creatae thread " << i << std::endl;
-        pthread_create(&ts[i], NULL, add_thread, (void *) i);
-        std::cout << "created thread " << i << std::endl;
-    }
-    for (long i = 0; i < 8; i ++)
-        (void)pthread_join (ts[i], NULL);
-
-    unsigned long new_, old = 0;
-    int PER_THREAD = 30;
-    for (long i = 0; i < 8 * PER_THREAD; i++) {
-        new_ = (long)q.deleteMin();
-        assert (old < new_);
-        old = new_;
-    }
-    std::cout<<"OK"<<std::endl;
-
-}
-
-
-//void test_parallel_del()
-//{
-//
-//    std::cout << "test parallel del, " << 8 << " threads"<<std::endl;
-//    int PER_THREAD = 30;
-//    for (long i = 0; i < 8 * PER_THREAD; i++)
-//        insert(pq, i+1, i+1);
-//
-//    for (long i = 0; i < nthreads; i ++)
-//        pthread_create (&ts[i], NULL, removemin_thread, (void *)i);
-//
-//    for (long i = 0; i < nthreads; i ++)
-//        (void)pthread_join (ts[i], NULL);
-//
-//    std::cout<<"OK"<<std::endl;
-//}
-
-
-
-
-
-
-
-
-
-
-
-
 int main(int argc,  char *argv[]) {
-    string pathToFile = argv[1];
+//    string pathToFile = argv[1];
+    std::string pathToFile = "./input.txt";
     ifstream f;
     f.open(pathToFile);
     if (!f) {
         cerr << "Unable to open file " << pathToFile;
         exit(1);
     }
-
-
     Graph *G = new Graph();
 
     string line;
@@ -521,7 +465,6 @@ int main(int argc,  char *argv[]) {
     source_index = strtol(token, &n, 0);
     G->source = source_index;
 
-    //G->vertices.push_back(source);
     G->vertices.resize(num_vertices);
     for (int i = 0; i < num_vertices; i++) {
         G->vertices[i] = new Vertex();
@@ -562,11 +505,10 @@ int main(int argc,  char *argv[]) {
 
         v1->neighbors.push_back(make_pair(v2, weight));
         v2->neighbors.push_back(make_pair(v1, weight));
-    }
-    dijkstra_shortest_path(G, 3, 1);
-    int a=1;
-    test_parallel_add();
 
+        std::cout << "created nodes: v1_index = " << v1_index <<", " << v2_index << ", weight: "  << weight << std::endl;
+
+    }   //when we reached here - done inserting all nodes to graph
+    dijkstra_shortest_path(G);
     return 0;
-
 }
