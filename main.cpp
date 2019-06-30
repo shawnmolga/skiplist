@@ -346,8 +346,8 @@ void * parallel_Dijkstra(void * void_input) {
     while (!done[tid]) {
         skiplistNode * min_offer_int = queue->deleteMin();
         std::cout << "in parallel_Dijkstra. Thread # " << tid << ". min_offer - " << min_offer_int->key << std::endl;
-        if (*min_offer_int == nullptr) {//todo- what does this do????
-            std::endl << "min offer is nullpter" <<std::endl;
+        if (min_offer_int == nullptr) {//todo- what does this do????
+            std::cout << "min offer is nullpter" <<std::endl;
             done[tid] = true; // 1 is done. change cp to num of thread.
             if (!finished_work(done, 3)) {//todo - what is the second input var?
                 done[tid] = false;
@@ -360,7 +360,7 @@ void * parallel_Dijkstra(void * void_input) {
             }
         }
 
-        std::endl << "before critical section" << std::endl;
+        std::cout << "before critical section" << std::endl;
         ////critical section - updating distance vector//////
         distancesLocks[min_offer_int->value]->lock();
         std::cout << "thread # " << tid << " in critical section" << std::endl;
