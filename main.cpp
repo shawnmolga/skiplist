@@ -144,10 +144,12 @@ public:
         skiplistNode * observedHead = x->next[0]; //first real head (after sentinel)
         bool isNextNodeDeleted;
         skiplistNode * next;
+        std::cout << "before do" << std::endl;
         do {
             next = x->getNextNodeUnmarked(0);
             isNextNodeDeleted = x->getIsNextNodeDeleted(0);
             if (x->getNextNodeUnmarked(0) == this->tail) { //if queue is empty - return
+                std::cout << "I AM SUPPOSED to BE HEre!!!!!" << std::endl;
                 return nullptr;
             }
             if (x->isInserting && !newHead) {
@@ -253,7 +255,7 @@ public:
     int source;//why is this needed?
     vector <Vertex*> vertices;
     std::mutex** offerLock; //used to prevent multiple threads from concurrently changing the priority (distance) to the same node.
-    Graph(){std::cout << "hi linker" << std::endl; };
+    Graph(){};
     ~Graph(){};//todo
 };
 
@@ -264,7 +266,6 @@ struct Offer {
 
 //////////////////////////////////////////////////////////////////
 /// DIJKSTRA ///
-
 
 skiplist q = skiplist(5);
 
@@ -338,14 +339,21 @@ void * parallel_Dijkstra(void * void_input) {
     Vertex *curr_v;
     Vertex *neighbor;
     bool explore = true;
-    int curr_dist;
+    int curr_dist = -1;
     int alt;
     int weight;
 
     std::cout << "in parallel_Dijkstra. Thread # " << tid << std::endl;
     while (!done[tid]) {
+        std::cout << "in while!" << std::endl;
         skiplistNode * min_offer_int = queue->deleteMin();
-        std::cout << "in parallel_Dijkstra. Thread # " << tid << ". min_offer - " << min_offer_int->key << std::endl;
+
+        curr_v = G->vertices[min_offer_int->value];
+        curr_dist = curr_v->dist;
+        std::cout << "found curr_v. printing neighbors"<< std::endl;
+        for (int i = 0; i < curr_v->neighbors.size(); i++){
+            std::cout << curr_v->neighbors[i].first->index << std::endl;
+        }
         if (min_offer_int == nullptr) {//todo- what does this do????
             std::cout << "min offer is nullpter" <<std::endl;
             done[tid] = true; // 1 is done. change cp to num of thread.
@@ -363,7 +371,7 @@ void * parallel_Dijkstra(void * void_input) {
         std::cout << "before critical section" << std::endl;
         ////critical section - updating distance vector//////
         distancesLocks[min_offer_int->value]->lock();
-        std::cout << "thread # " << tid << " in critical section" << std::endl;
+        std::cout << "thread # " << tid << " in critical section. curr dist = " << curr_dist << ", other = " <<distances[min_offer_int->value] << std::endl ;
         if (curr_dist < distances[min_offer_int->value]) {
             distances[min_offer_int->value] = curr_dist; //todo remove field dist from vertex
             explore = true;
@@ -372,22 +380,26 @@ void * parallel_Dijkstra(void * void_input) {
         }
         distancesLocks[min_offer_int->value]->unlock();
         ////end of critical section/////
-
+        std::cout << "left critical section" << std::endl;
+        std::cout << explore << std::endl;
         if (explore) {
+            std::cout << "in explore44444444444444" << std::cout;
             for (int i = 0; i < (curr_v->neighbors.size()); i++) {
+                std::cout << "in for. i = " <<i << std::endl;
                 neighbor = curr_v->neighbors[i].first;
                 weight = curr_v->neighbors[i].second;
                 alt = curr_dist + weight;
                 relax(queue, distances, offersLocks, offers, neighbor, alt);
             }
         }
+        std::cout << "end of while" << std::endl;
     }//end of while
+    std::cout << "leaving parallel dijkstra" << std::endl;
     return NULL;
 }//end of function
 
 
 void dijkstra_shortest_path(Graph *G) {
-    std::cout << "in dijkstra_shortest_path" <<std::endl;
     int num_of_theads = 10; //todo - optimize this
     skiplist * queue = new skiplist(5); //global
     Offer *min_offer;
@@ -403,7 +415,7 @@ void dijkstra_shortest_path(Graph *G) {
     }
     //init distances and offers (why are there 2?)
     for (int i = 0; i < G->vertices.size(); i++) {
-        distances[i] = -1;
+        distances[i] = 100000000;
         offers[i] =NULL;
     }
 
@@ -415,7 +427,7 @@ void dijkstra_shortest_path(Graph *G) {
 
     // initialization
     std::cout<< "G->source = " << G->source << std::endl;//todo  -delete this
-    distances[G->source] = -1; //todo check
+    distances[G->source] = 0; //todo check
 
     queue->insert(0, 0);//insert first element to queue. First element: key (dist) = 0, value(index) = 0 (this is the soure)
 
