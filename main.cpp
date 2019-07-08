@@ -41,10 +41,16 @@ public:
 
 
     bool getIsNextNodeDeleted() {
-        uintptr_t address = (uintptr_t) this->next[0];
-        uintptr_t isNextDeleted = address & 1;
-        if (isNextDeleted)
-            return true;
+//        std::cout<< "checking if " <<this->key<< ", " <<  this->value << " next is deleted" << std::endl;
+        if (this->next.size() > 0) {
+//            std::cout << "apparently, this->value = " << this->value <<  "has next. size = " << this->next.size()<<std::endl;
+            uintptr_t  address = (uintptr_t) this->next[0];
+            uintptr_t isNextDeleted = address & 1;
+            if (isNextDeleted)
+                return true;
+            else
+                return false;
+        }
         else
             return false;
     }
@@ -81,69 +87,41 @@ public:
         this->head->isInserting = false;
     }
 
-    void locatePreds(int k, skiplistNode *preds[], skiplistNode *succs[],
-                     skiplistNode *del) {
-//        std::cout << "LOCATING PREDECESSOR OF K= " << k << std::endl;
-        int i = this->levels - 1;
-        skiplistNode *pred = this->head;
-        while (i >= 0) {
-//            std::stdcout << "in while. i = " << i << std::endl;
-            skiplistNode *cur = pred->next[i];
-            int isCurDeleted = pred->getIsNextNodeDeleted();
-//            std::cout << "after isCurDeleted. isCurDeleted? " <<isCurDeleted <<std::endl;
-            bool isNextDeleted = cur->getIsNextNodeDeleted();
-//            std::cout << "is next node deleted? "<< isNextDeleted <<std::endl;
-            while (cur->key < k || isNextDeleted || ((i == 0) && isCurDeleted)) {
-//                std::cout << "******beginning of while "<<std::endl;
-                if ((isCurDeleted) && i == 0) //if there is a level 0 node deleted without a "delete flag" on:
-                    del = cur;
-                pred = cur;
-                cur = pred->next[i];
-                isCurDeleted = pred->getIsNextNodeDeleted();
-//                std::cout << "before getIsNextNodeDeleted number two" << std::endl;
-//                this->printSkipList();
-                isNextDeleted = cur->getIsNextNodeDeleted();
-//                std::cout << "end of while" << std::endl;
-
-            }
-//            std::cout <<  "after while " << std::endl;
-            preds[i] = pred;
-            succs[i] = cur;
-            i--;
-        }
-    }
-
 
     void locatePreds(int k, std::vector<skiplistNode *> &preds, std::vector<skiplistNode *> &succs,
                      skiplistNode *del) {
-//        std::cout << "locating preds for k = " << k <<std::endl;
+        std::cout << "locating preds for k = " << k <<std::endl;
         this->printSkipList();
         int i = this->levels - 1;
-        skiplistNode * pred = this->head;
+        skiplistNode * pred;
         while (i >= 0) {
-//            std::cout << "in while. i = " << i << std::endl;
-            skiplistNode * cur = pred->next[i];
+            pred = this->head;
+            std::cout << "in while. i = " << i << "k = " << k << std::endl;
+            skiplistNode * cur = pred->getNextNodeUnmarked(i);
             int isCurDeleted = pred->getIsNextNodeDeleted();
-//            std::cout << "after isCurDeleted. isCurDeleted? " <<isCurDeleted <<" cur->key = " << cur->key <<std::endl;
+            std::cout << "after isCurDeleted. cur = "<<cur->key <<"cur VALUE!!! = " << cur->value << ", deleted? " << isCurDeleted<<", i =  " << i << ", k = " << k  <<std::endl;
             bool isNextDeleted = cur->getIsNextNodeDeleted();
-//            std::cout << "is next node deleted? "<< isNextDeleted <<" i = " << i <<std::endl;
+            std::cout << "is next node deleted? "<< isNextDeleted <<" i = " <<  i << ", k = " << k << std::endl;
             while (cur->key < k || isNextDeleted || ((i == 0) && isCurDeleted)) {
                 if ((isCurDeleted) && i == 0) { //if there is a level 0 node deleted without a "delete flag" on:
-//                    std::cout << "is this problematic????" << std::endl;
+                    std::cout << "is this problematic????" << std::endl;
                     del = cur;
                 }
+                std::cout<<"outsideof problematic if" << std::endl;
                 pred = cur;
-                cur = pred->next[i];
+                std::cout<<"help, pred= "<<pred->key <<", " <<pred->value<<std::endl;
+                cur = pred->getNextNodeUnmarked(i);
+//                cur = pred->next[i];
+                std::cout<<"help2"<<std::endl;
                 isCurDeleted = pred->getIsNextNodeDeleted();
-//                std::cout << "before getIsNextNodeDeleted number two" << std::endl;
+                std::cout << "before getIsNextNodeDeleted number two. i = " << i << ", k = " << k << std::endl;
 //                this->printSkipList();
                 isNextDeleted = cur->getIsNextNodeDeleted();
 //                std::cout << "end of second while" << std::endl;
             }
             preds[i] = pred;
             succs[i] = cur;
-//            std::cout << "done with iteration " << i << std::endl;
-
+            std::cout << "done with iteration " << i << std::endl;
             i--;
         }
 //        std::cout << "SUCCESSFULLY LOCATIED PREDECESSOR OF K= " << k << std::endl;
@@ -154,9 +132,11 @@ public:
         int i = this->levels - 1;
         skiplistNode *pred = this->head;
         while (i > 0) {
-            skiplistNode *h = this->head->next[i];//record observed heada
+//            skiplistNode *h = this->head->next[i];//record observed heada
+            skiplistNode *h = this->head->getNextNodeUnmarked(i);//record observed heada
             bool is_h_next_deleted = h->getIsNextNodeDeleted();
-            skiplistNode *cur = pred->next[i]; //take one step forwarad
+//            skiplistNode *cur = pred->next[i]; //take one step forwarad
+            skiplistNode *cur = pred->getNextNodeUnmarked(i); //take one step forwarad
             bool is_cur_next_deleted = cur->getIsNextNodeDeleted();
             if (!is_h_next_deleted) {
                 i--;
@@ -165,7 +145,8 @@ public:
             //traverse level until non-marked node is found
             while (is_cur_next_deleted) {
                 pred = cur;
-                cur = pred->next[i];
+//                cur = pred->next[i];
+                cur = pred->getNextNodeUnmarked(i);
                 is_cur_next_deleted = pred->getIsNextNodeDeleted();
             }
             std::cout << "before assertion in restructure" << std::endl;
@@ -181,10 +162,10 @@ public:
         skiplistNode *x = this->head;
         int offset = 0;
         skiplistNode *newHead = nullptr;
-        skiplistNode *observedHead = x->next[0]; //first real head (after sentinel)
+        skiplistNode *observedHead = x->getNextNodeUnmarked(0); //first real head (after sentinel)
         bool isNextNodeDeleted;
         skiplistNode *next;
-        std::cout << "in deleteMin(), before do" << std::endl;
+//        std::cout << "in deleteMin(), before do" << std::endl;
         do {
             next = x->getNextNodeUnmarked(0);
             isNextNodeDeleted = x->getIsNextNodeDeleted();
@@ -214,17 +195,18 @@ public:
             restructure();
             skiplistNode *cur = observedHead;
             while (cur != newHead) {
-                next = cur->next[0];
+//                next = cur->next[0];
+                next = cur->getNextNodeUnmarked(0);
 //                markRecycle(cur); //todo !!!!!!!!!!!!!!!!!!!!! what the fuck is this
                 cur = next;
             }
         }
-        std::cout<<"leaving delete min" <<std::endl;
+//        std::cout<<"leaving delete min" <<std::endl;
         return x;
     }
 
     void insert(int key, int val) {
-        std::cout << "inserting " << val << std::endl;
+//        std::cout << "inserting " << val << std::endl;
         int height = getRandomHeight();
         skiplistNode *newNode = new skiplistNode(key, val, height);
         std::vector < skiplistNode * > preds(this->levels, nullptr);
@@ -234,15 +216,8 @@ public:
 //        skiplistNode * succs[this->levels];
         skiplistNode *del = nullptr;
         do {
-            std::cout << "before locate preds of " << val << std::endl;
+//            std::cout << "before locate preds of " << val << std::endl;
             this->locatePreds(key, preds, succs, del);
-//            std::cout << "pushing back" << std::endl;
-//            for (int i = 0; i < succs.size(); i++) {
-//                if (!succs[i])
-//                    std::cout << "null" << std::endl;
-//                else
-//                    std::cout << succs[i]->key << std::endl;
-//            }
             newNode->next[0] = succs[0];
         } while (!__sync_bool_compare_and_swap(&preds[0]->next[0], succs[0], newNode));
         int i = 1;
@@ -261,15 +236,15 @@ public:
                     break; //new has been deleted
             }
         }
-        std::cout << "done inserting " << val << std::endl;
+//        std::cout << "done inserting " << val << std::endl;
         newNode->isInserting = false; //allow batch deletion past this node
     }
 
     void printSkipList() {
         std::cout << "--------------------------------------------------" << std::endl;
-        std::cout << "printing skiplist" << std::endl;
+        std::cout << "printing skiplist, levels = "<< this->levels << std::endl;
         skiplistNode *node = this->head;
-        for (int i = 0; i < this->levels - 1; i++) {
+        for (int i = 0; i < this->levels; i++) {
             std::cout << "level " << i << " , head ";
             skiplistNode *nextNode = node->getNextNodeUnmarked(i);
             bool isNextDeleted = node->getIsNextNodeDeleted();
@@ -333,48 +308,31 @@ bool finished_work(bool *done, int size) {
     return true;
 }
 
-//void relax(skiplist *queue, int *distances, std::mutex **offersLocks, Offer **offers, Vertex *vertex, int alt) {
-//    std::cout << "in relax!!!" << std::endl;
-////    std::cout << "in relax, vertext->dist = " << distances[vertex->index] <<", alt = " << alt <<std::endl;
-//    Offer *curr_offer;
-//    //// critical section /////
-//    offersLocks[vertex->index]->lock();
-//////    std::cout << "alt = " << alt << ", distances[vertex->index] = " <<  distances[vertex->index] << std::endl;
-//    if (alt < distances[vertex->index]) {
-//        curr_offer = offers[vertex->index];
-////        if (curr_offer == NULL)
-////            std::cout << "curr_oofer is null" << std::endl;
-//        if (curr_offer == NULL || alt < curr_offer->dist) {//todo- look into changing it to "alt<vertex->dist"
-//            Offer *new_offer = new Offer(vertex, alt);
-////            std::cout << "after creating new offer" << std::endl;
-//            queue->insert(alt, vertex->index);//todo- check this
-////            std::cout << "after insert"<< std::endl;
-//            offers[vertex->index] = new_offer;
-////            std::cout << "after adding element to offers" << std::endl;
-////            //todo- check this: changing the value of the vertex itself??
-//        }
-//    }
-//    offersLocks[vertex->index]->unlock();
-////    std::cout << "leaving relax()" << std::endl;
-////    /////end of critical section/////
-////
-////    //todo - delete previous offer??
-//
-//}
 
-void relax(skiplist *queue, std::vector<int> &distances, std::mutex **offersLocks, std::vector<Offer *> &offers,
+void relax(skiplist *queue, int * distances, std::mutex **offersLocks, std::vector<Offer *> &offers,
            Vertex *vertex, int alt) {
-    std::cout << "in relax!!!" << std::endl;
     Offer *curr_offer;
 
     //// critical section /////
     offersLocks[vertex->index]->lock();
+//    std::cout << "in relax!!! a " << std::endl;
+
     if (alt < distances[vertex->index]) {
+//        std::cout << "in relax!!! b " << std::endl;
+
         curr_offer = offers[vertex->index];
+//        std::cout << "in relax!!! c " << std::endl;
+
         if (curr_offer == NULL || alt < curr_offer->dist) {//todo- look into changing it to "alt<vertex->dist"
+//            std::cout << "in relax!!! d " << std::endl;
+
             Offer *new_offer = new Offer(vertex, alt);
             queue->insert(alt, vertex->index);//todo- check this
+//            std::cout << "in relax!!! e " << std::endl;
+
             offers[vertex->index] = new_offer;
+//            std::cout << "in relax!!! f " << std::endl;
+
         }
     }
     offersLocks[vertex->index]->unlock();
@@ -391,10 +349,22 @@ public:
     std::mutex **offersLocks;
     std::mutex **distancesLocks;
     int tid;
-    std::vector<int> distances;
+//    std::vector<int> distances;
+    int * distances;
     std::vector<Offer *> offers;
 
-    threadInput(bool *done, skiplist *queue, Graph *G, std::vector<int> distances, std::mutex **offersLocks,
+//    threadInput(bool *done, skiplist *queue, Graph *G, std::vector<int> & distances, std::mutex **offersLocks,
+//                std::mutex **distancesLocks, std::vector<Offer *> offers, int tid) {
+//        this->done = done;
+//        this->queue = queue;
+//        this->G = G;
+//        this->distances = distances;
+//        this->offersLocks = offersLocks;
+//        this->distancesLocks = distancesLocks;
+//        this->offers = offers;
+//        this->tid = tid;
+//    }
+    threadInput(bool *done, skiplist *queue, Graph *G, int * distances, std::mutex **offersLocks,
                 std::mutex **distancesLocks, std::vector<Offer *> offers, int tid) {
         this->done = done;
         this->queue = queue;
@@ -412,10 +382,10 @@ void *parallelDijkstra(void *void_input) {
     bool *done = input->done;
     skiplist *queue = input->queue;
     Graph *G = input->G;
-    std::vector<int> distances = input->distances;
-    std::mutex **offersLocks = input->offersLocks;
-    std::mutex **distancesLocks = input->distancesLocks;
-    std::vector < Offer * > offers = input->offers;
+//    std::vector<int> distances = input->distances;
+//    std::mutex **offersLocks = input->offersLocks;
+//    std::mutex **distancesLocks = input->distancesLocks;
+//    std::vector < Offer * > offers = input->offers;
     int tid = input->tid;
     Vertex *curr_v;
     Vertex *neighbor;
@@ -424,56 +394,57 @@ void *parallelDijkstra(void *void_input) {
     int alt;
     int weight;
 
-    std::cout << "in parallelDijkstra. Thread # " << tid << std::endl;
+//    std::cout << "in parallelDijkstra. Thread # " << tid << std::endl;
     while (!done[tid]) {
-        std::cout << "in while!" << std::endl;
+//        std::cout << "in while!" << std::endl;
         skiplistNode *min_offer_int = queue->deleteMin();
 //        std::cout << "found curr_v (index) = " << curr_v->index <<", curr_v(dist) = " << curr_v->dist << "printing neighbors"<< std::endl;
 //        std::cout << "found curr_v (index) = " << curr_v->index << ". printing neighbors"<< std::endl;
 
         if (min_offer_int == nullptr) {//todo- what does this do????
-            std::cout << "min offer is nullpter, done["<<tid<<"] = true" <<std::endl;
+//            std::cout << "min offer is nullpter, done["<<tid<<"] = true" <<std::endl;
             done[tid] = true; // 1 is done. change cp to num of thread.
             if (!finished_work(done, 2)) {//todo - second input - num of threads
                 done[tid] = false;
                 continue;
             } else { // all threads finished work terminate process
                 for (int i = 0; i < G->vertices.size(); i++) {
-                    std::cout << distances[i] << "\n";
+                    std::cout << "i = " << i <<", distance = " <<input->distances[i] << std::endl;
                 }
                 std::cout << "ALL DONE!!!!!!!!!!!!" << std::endl;
                 return NULL;
             }
         }
-        std::cout <<"!!!!!!!!!!!!!! deleted node = "<< min_offer_int->key <<std::endl;
+//        std::cout <<"!!!!!!!!!!!!!! deleted node = "<< min_offer_int->key <<std::endl;
 
         curr_v = G->vertices[min_offer_int->value];
         curr_dist = min_offer_int->key;//todo - check this
 
         ////critical section - updating distance vector//////
-        distancesLocks[min_offer_int->value]->lock();
-        if (curr_dist < distances[min_offer_int->value]) {
-            distances[min_offer_int->value] = curr_dist; //todo remove field dist from vertex
+        input->distancesLocks[min_offer_int->value]->lock();
+        if (curr_dist < input->distances[min_offer_int->value]) {
+            input->distances[min_offer_int->value] = curr_dist; //todo remove field dist from vertex
             explore = true;
 
         } else {
             explore = false;
         }
-        distancesLocks[min_offer_int->value]->unlock();
+        input->distancesLocks[min_offer_int->value]->unlock();
         ////end of critical section/////
         if (explore) {
             for (int i = 0; i < (curr_v->neighbors.size()); i++) {
+//                std::cout << "in explore!!!! i = " << i << " out of " << curr_v->neighbors.size() << std::endl;
                 neighbor = curr_v->neighbors[i].first;
                 weight = curr_v->neighbors[i].second;
                 alt = curr_dist + weight;
-                relax(queue, distances, offersLocks, offers, neighbor, alt);
+                relax(queue, input->distances, input->offersLocks, input->offers, neighbor, alt);
             }
-            std::cout << "done exploring node. skiplist = " << std::endl;
-            queue->printSkipList();
+//            std::cout << "done exploring node. skiplist = " << std::endl;
+//            queue->printSkipList();
         }
     }//end of while
     return NULL;
-}//end of function
+}
 
 
 
@@ -482,7 +453,8 @@ void dijkstra_shortest_path(Graph *G) {
     skiplist *queue = new skiplist(5); //global
     Offer *min_offer;
     Vertex *curr_v;
-    std::vector<int> distances(G->vertices.size(), 100000000);//todo - change to max int
+//    std::vector<int> distances(G->vertices.size(), 100000000);//todo - change to max int
+    int * distances = (int * )malloc(sizeof(int)*G->vertices.size());
     std::vector < Offer * > offers(G->vertices.size(), nullptr);
     bool *done = new bool[num_of_theads]();
     std::mutex **offersLocks = new std::mutex *[G->vertices.size()];
@@ -493,6 +465,7 @@ void dijkstra_shortest_path(Graph *G) {
     for (int i = 0; i < G->vertices.size(); i++) {
         offersLocks[i] = new std::mutex();
         distancesLocks[i] = new std::mutex();
+        distances[i] = 1000000000;
     }
 
     queue->insert(0, 0);//insert first element to queue. First element: key (dist) = 0, value(index) = 0 (this is the soure)
@@ -504,8 +477,10 @@ void dijkstra_shortest_path(Graph *G) {
 
     for (long i = 0; i < num_of_theads; i++)
         (void) pthread_join(threads[i], NULL);
-
-    std::cout << "threads joined?" << std::endl;
+    queue->printSkipList();
+    for (int i = 0; i < G->vertices.size(); i++) {
+        std::cout << "i = " << i <<", distance = " <<distances[i] << std::endl;
+    }    std::cout << "threads joined?" << std::endl;
 }
 
 
