@@ -12,7 +12,7 @@
 
 using namespace std;
 
-#define LEVELS 5 //log n (10^7)
+#define LEVELS 25 //log n (10^7)
 
 int getRandomHeight() {
     //check if the ith bit is 1.
@@ -90,45 +90,45 @@ public:
 
     void locatePreds(int k, std::vector<skiplistNode *> &preds, std::vector<skiplistNode *> &succs,
                      skiplistNode *del) {
-        std::cout << "locating preds for k = " << k <<std::endl;
-        this->printSkipList();
+//        std::cout << "locating preds for k = " << k <<std::endl;
+//        this->printSkipList();
         int i = this->levels - 1;
         skiplistNode * pred;
         while (i >= 0) {
             pred = this->head;
-            std::cout << "in while. i = " << i << "k = " << k << std::endl;
+//            std::cout << "in while. i = " << i << "k = " << k << std::endl;
             skiplistNode * cur = pred->getNextNodeUnmarked(i);
             int isCurDeleted = pred->getIsNextNodeDeleted();
-            std::cout << "after isCurDeleted. cur = "<<cur->key <<"cur VALUE!!! = " << cur->value << ", deleted? " << isCurDeleted<<", i =  " << i << ", k = " << k  <<std::endl;
+//            std::cout << "after isCurDeleted. cur = "<<cur->key <<"cur VALUE!!! = " << cur->value << ", deleted? " << isCurDeleted<<", i =  " << i << ", k = " << k  <<std::endl;
             bool isNextDeleted = cur->getIsNextNodeDeleted();
-            std::cout << "is next node deleted? "<< isNextDeleted <<" i = " <<  i << ", k = " << k << std::endl;
+//            std::cout << "is next node deleted? "<< isNextDeleted <<" i = " <<  i << ", k = " << k << std::endl;
             while (cur->key < k || isNextDeleted || ((i == 0) && isCurDeleted)) {
                 if ((isCurDeleted) && i == 0) { //if there is a level 0 node deleted without a "delete flag" on:
-                    std::cout << "is this problematic????" << std::endl;
+//                    std::cout << "is this problematic????" << std::endl;
                     del = cur;
                 }
-                std::cout<<"outsideof problematic if" << std::endl;
+//                std::cout<<"outsideof problematic if" << std::endl;
                 pred = cur;
-                std::cout<<"help, pred= "<<pred->key <<", " <<pred->value<<std::endl;
+//                std::cout<<"help, pred= "<<pred->key <<", " <<pred->value<<std::endl;
                 cur = pred->getNextNodeUnmarked(i);
 //                cur = pred->next[i];
-                std::cout<<"help2"<<std::endl;
+//                std::cout<<"help2"<<std::endl;
                 isCurDeleted = pred->getIsNextNodeDeleted();
-                std::cout << "before getIsNextNodeDeleted number two. i = " << i << ", k = " << k << std::endl;
+//                std::cout << "before getIsNextNodeDeleted number two. i = " << i << ", k = " << k << std::endl;
 //                this->printSkipList();
                 isNextDeleted = cur->getIsNextNodeDeleted();
 //                std::cout << "end of second while" << std::endl;
             }
             preds[i] = pred;
             succs[i] = cur;
-            std::cout << "done with iteration " << i << std::endl;
+//            std::cout << "done with iteration " << i << std::endl;
             i--;
         }
 //        std::cout << "SUCCESSFULLY LOCATIED PREDECESSOR OF K= " << k << std::endl;
     }
 
     void restructure() {
-        std::cout << "in restructure" << std::endl;
+//        std::cout << "in restructure" << std::endl;
         int i = this->levels - 1;
         skiplistNode *pred = this->head;
         while (i > 0) {
@@ -149,7 +149,7 @@ public:
                 cur = pred->getNextNodeUnmarked(i);
                 is_cur_next_deleted = pred->getIsNextNodeDeleted();
             }
-            std::cout << "before assertion in restructure" << std::endl;
+//            std::cout << "before assertion in restructure" << std::endl;
             assert(pred->getIsNextNodeDeleted());//todo - delete
             if (__sync_bool_compare_and_swap(&this->head->next[i], h,
                                              pred->next[i])) { // if CAS fails, the same operation will be done for the same level
@@ -220,6 +220,7 @@ public:
             this->locatePreds(key, preds, succs, del);
             newNode->next[0] = succs[0];
         } while (!__sync_bool_compare_and_swap(&preds[0]->next[0], succs[0], newNode));
+//        std::cout<<"after while!" << std::endl;
         int i = 1;
         while (i < height) { //insert node at higher levels (bottoms up)
             newNode->next[i] = succs[i];
@@ -298,12 +299,13 @@ public :
 //////////////////////////////////////////////////////////////////
 /// DIJKSTRA ///
 
-skiplist q = skiplist(5);
+skiplist q = skiplist(LEVELS);
 
-bool finished_work(bool *done, int size) {
+bool finished_work(bool * done, int size) {
     for (int i = 0; i < size; i++) {
-        if (!done[i])
+        if (!done[i]) {
             return false;
+        }
     }
     return true;
 }
@@ -378,14 +380,10 @@ public:
 };
 
 void *parallelDijkstra(void *void_input) {
-    threadInput *input = (threadInput *) void_input;
-    bool *done = input->done;
+    threadInput * input = (threadInput *) void_input;
+    bool * done = input->done;
     skiplist *queue = input->queue;
     Graph *G = input->G;
-//    std::vector<int> distances = input->distances;
-//    std::mutex **offersLocks = input->offersLocks;
-//    std::mutex **distancesLocks = input->distancesLocks;
-//    std::vector < Offer * > offers = input->offers;
     int tid = input->tid;
     Vertex *curr_v;
     Vertex *neighbor;
@@ -394,28 +392,28 @@ void *parallelDijkstra(void *void_input) {
     int alt;
     int weight;
 
-//    std::cout << "in parallelDijkstra. Thread # " << tid << std::endl;
     while (!done[tid]) {
-//        std::cout << "in while!" << std::endl;
+//        std::cout << "in while! in paralelelll" << std::endl;
         skiplistNode *min_offer_int = queue->deleteMin();
 //        std::cout << "found curr_v (index) = " << curr_v->index <<", curr_v(dist) = " << curr_v->dist << "printing neighbors"<< std::endl;
 //        std::cout << "found curr_v (index) = " << curr_v->index << ". printing neighbors"<< std::endl;
 
         if (min_offer_int == nullptr) {//todo- what does this do????
-//            std::cout << "min offer is nullpter, done["<<tid<<"] = true" <<std::endl;
+//            std::cout << "min offer is nullpter, done[" << tid << "] = true" <<std::endl;
+            std::cout << "min offer is nullpter " <<std::endl;
             done[tid] = true; // 1 is done. change cp to num of thread.
-            if (!finished_work(done, 2)) {//todo - second input - num of threads
-                done[tid] = false;
-                continue;
-            } else { // all threads finished work terminate process
-                for (int i = 0; i < G->vertices.size(); i++) {
-                    std::cout << "i = " << i <<", distance = " <<input->distances[i] << std::endl;
-                }
-                std::cout << "ALL DONE!!!!!!!!!!!!" << std::endl;
+//            if (!finished_work(done, 1)) {//todo - second input - num of threads
+//                done[tid] = false;
+//                continue;
+//            } else { // all threads finished work terminate process
+//                for (int i = 0; i < G->vertices.size(); i++) {
+//                    std::cout << "i = " << i <<", distance = " <<input->distances[i] << std::endl;
+//                }
+//                std::cout << "ALL DONE!!!!!!!!!!!!" << std::endl;
                 return NULL;
-            }
+//            }
         }
-//        std::cout <<"!!!!!!!!!!!!!! deleted node = "<< min_offer_int->key <<std::endl;
+        std::cout <<"!!!!!!!!!!!!!! deleted node = "<< min_offer_int->key <<std::endl;
 
         curr_v = G->vertices[min_offer_int->value];
         curr_dist = min_offer_int->key;//todo - check this
@@ -449,14 +447,15 @@ void *parallelDijkstra(void *void_input) {
 
 
 void dijkstra_shortest_path(Graph *G) {
-    int num_of_theads = 2; //todo - optimize this
-    skiplist *queue = new skiplist(5); //global
+    int num_of_theads = 80; //todo - optimize this
+    skiplist *queue = new skiplist(LEVELS); //global
     Offer *min_offer;
     Vertex *curr_v;
 //    std::vector<int> distances(G->vertices.size(), 100000000);//todo - change to max int
     int * distances = (int * )malloc(sizeof(int)*G->vertices.size());
     std::vector < Offer * > offers(G->vertices.size(), nullptr);
-    bool *done = new bool[num_of_theads]();
+//    bool * done = new bool[num_of_theads]();
+    bool * done = (bool * )malloc(sizeof(bool)*num_of_theads);
     std::mutex **offersLocks = new std::mutex *[G->vertices.size()];
     std::mutex **distancesLocks = new std::mutex *[G->vertices.size()];
 
@@ -471,22 +470,27 @@ void dijkstra_shortest_path(Graph *G) {
     queue->insert(0, 0);//insert first element to queue. First element: key (dist) = 0, value(index) = 0 (this is the soure)
     pthread_t threads[num_of_theads];
     for (int i = 0; i < num_of_theads; i++) {
+        done[i] = false; //set thread[i] to 'not-done'
         threadInput *input = new threadInput(done, queue, G, distances, offersLocks, distancesLocks, offers, i);
         pthread_create(&threads[i], NULL, &parallelDijkstra, (void *) input);
     }
 
     for (long i = 0; i < num_of_theads; i++)
         (void) pthread_join(threads[i], NULL);
-    queue->printSkipList();
+
+    ofstream myfile;
+    myfile.open ("output.txt");
     for (int i = 0; i < G->vertices.size(); i++) {
-        std::cout << "i = " << i <<", distance = " <<distances[i] << std::endl;
-    }    std::cout << "threads joined?" << std::endl;
+        myfile << "i = " << i <<", distance = " <<distances[i] << std::endl;
+    }
+    myfile.close();
+
 }
 
 
 int main(int argc, char *argv[]) {
 //    string pathToFile = argv[1];
-    std::string pathToFile = "./input.txt";
+    std::string pathToFile = "./input_full.txt";
     ifstream f;
     f.open(pathToFile);
     if (!f) {
