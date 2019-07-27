@@ -8,11 +8,15 @@
 #include <mutex>
 #include<bits/stdc++.h>
 #include <string>
+#include "recordmgr/record_manager.h"
+
 
 
 using namespace std;
 
-#define LEVELS 5 //log n (10^7)
+std::mutex working_status;
+
+#define LEVELS 20//log n (10^7)
 
 int getRandomHeight() {
     //check if the ith bit is 1.
@@ -29,6 +33,9 @@ public:
     int value;
     int levels;
     std::vector<skiplistNode *> next;
+    volatile bool safe;
+    record_manager<reclaimer_debra<>,allocator_new<>,pool_none<>,skiplistNode> * mgr; //todo - check DEBRA
+
 
     skiplistNode(int key, int data, int levels, skiplistNode *val = nullptr) : isInserting(true), key(key), value(data),
                                                                                levels(levels) {
@@ -80,7 +87,7 @@ public:
     skiplistNode *head;
     skiplistNode *tail;
     int levels = LEVELS;
-    int BOUND_OFFSET = 1;//todo - wtf
+    int BOUND_OFFSET = 100;//todo - wtf
 
     skiplist(int levels) {
         this->tail = new skiplistNode(5555555, 0, LEVELS);
@@ -188,7 +195,7 @@ public:
     }
 
     void insert(int key, int val) {
-        std::cout << "inserting val =" << val <<", key = " << key << std::endl;
+//        std::cout << "inserting val =" << val <<", key = " << key << std::endl;
         int height = getRandomHeight();
         skiplistNode *newNode = new skiplistNode(key, val, height);
         std::vector < skiplistNode * > preds(this->levels, nullptr);
@@ -339,21 +346,40 @@ void *parallelDijkstra(void *void_input) {
     int curr_dist = -1;
     int alt;
     int weight;
-
-    while (!done[tid]) {
+    int num_of_threads = 80;
+    while (true) {
+        if (tid == 1){
+            std::cout<<"starting while" << std::endl;
+        }
+        working_status.lock();
+        if (tid == 1){
+            std::cout<<"after lock" << std::endl;
+        }
         skiplistNode *min_offer_int = queue->deleteMin();
+        if (tid == 1){
+            std::cout<<"after delete min" << std::endl;
+        }
+        if (min_offer_int == nullptr)
+            done[tid] = true; // 1 is done. change cp to num of thread
+        else
+            done[tid] = false;
+        working_status.unlock();
+        if (tid == 1){
+            std::cout<<"after unlock" << std::endl;
+        }
+
         if (min_offer_int == nullptr) {
             std::cout << "min offer is nullpter " <<std::endl;
-            done[tid] = true; // 1 is done. change cp to num of thread.
+
             int k = 0;
-            while (done[k] && k < 1)
+            while (done[k] && k < num_of_threads)
                 k++;
-            if (k == 1)
+            if (k == num_of_threads)
                 return NULL;
             else
-                done[tid] = false;
                 continue;
         }
+        //done[tid] = false;
         std::cout << tid <<" deleted node = "<< min_offer_int->key <<std::endl;
 
         curr_v = G->vertices[min_offer_int->value];
@@ -379,13 +405,12 @@ void *parallelDijkstra(void *void_input) {
             }
         }
     }//end of while
-    return NULL;
 }
 
 
 
 void dijkstra_shortest_path(Graph *G) {
-    int num_of_theads = 1; //todo - optimize this
+    int num_of_theads = 80; //todo - optimize this
     skiplist *queue = new skiplist(LEVELS); //global
     Offer *min_offer;
     Vertex *curr_v;
@@ -426,7 +451,7 @@ void dijkstra_shortest_path(Graph *G) {
 
 int main(int argc, char *argv[]) {
 //    string pathToFile = argv[1];
-    std::string pathToFile = "./input_1.txt";
+    std::string pathToFile = "./input_full.txt";
     ifstream f;
     f.open(pathToFile);
     if (!f) {
