@@ -14,13 +14,23 @@
 
 using namespace std;
 
+static int num_of_elements;
+
 std::mutex working_status;
 
-#define LEVELS 20//log n (10^7)
+#define LEVELS 25//log n (10^7)
 
 int getRandomHeight() {
-    //check if the ith bit is 1.
-    return (rand() % LEVELS) + 1;
+    int random_num = rand();
+
+    int height = 1;
+    while (random_num % 2 == 0 && height <= LEVELS-1){
+        height++;
+        random_num = random_num >> 2;
+    }
+    //1/2^n //check if the ith bitb is 1.
+
+    return height;
 }
 
 
@@ -48,9 +58,7 @@ public:
 
 
     bool getIsNextNodeDeleted() {
-//        std::cout<< "checking if " <<this->key<< ", " <<  this->value << " next is deleted" << std::endl;
         if (this->next.size() > 0) {
-//            std::cout << "apparently, this->value = " << this->value <<  "has next. size = " << this->next.size()<<std::endl;
             uintptr_t  address = (uintptr_t) this->next[0];
             uintptr_t isNextDeleted = address & 1;
             if (isNextDeleted)
@@ -87,7 +95,7 @@ public:
     skiplistNode *head;
     skiplistNode *tail;
     int levels = LEVELS;
-    int BOUND_OFFSET = 100;//todo - wtf
+    int BOUND_OFFSET = 10000;//todo - wtf
 
     skiplist(int levels) {
         this->tail = new skiplistNode(5555555, 0, LEVELS);
@@ -99,7 +107,6 @@ public:
 
     void locatePreds(int k, std::vector<skiplistNode *> &preds, std::vector<skiplistNode *> &succs,
                      skiplistNode *del) {
-//        std::cout << "locating preds for k = " << k <<std::endl;
         int i = this->levels - 1;
         skiplistNode * pred;
         while (i >= 0) {
@@ -120,7 +127,6 @@ public:
             succs[i] = cur;
             i--;
         }
-//        std::cout << "SUCCESSFULLY LOCATIED PREDECESSOR OF K= " << k << std::endl;
     }
 
     void restructure() {
@@ -174,6 +180,7 @@ public:
         } while (isNextNodeDeleted);
 
         int v = x->value;
+        std::cout<<"offxet = " << offset << ", BOUND OFFSET = " << this->BOUND_OFFSET << std::endl;
         if (offset < this->BOUND_OFFSET) {//if the offset is big enough - try to perform memory reclamation
             return x;
         }
@@ -181,21 +188,30 @@ public:
             newHead = x;
         }
 
+        std::cout<<"!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!1"<<std::endl;
+
         if (__sync_bool_compare_and_swap(&this->head->next[0], observedHead_marked, newHead)) {
+            std::cout<<"before restructure"<<std::endl;
             restructure();
+            std::cout<<"after restructure"<<std::endl;
+
             skiplistNode *cur = observedHead_unmarked;
-            while (cur != newHead) {
-                next = observedHead_unmarked->getNextNodeUnmarked(0);
+//            while (cur != newHead) {
+//                std::cout << "in while after restructure" << std::endl;
+//                next = observedHead_unmarked->getNextNodeUnmarked(0);
 //                markRecycle(cur); //todo !!!!!!!!!!!!!!!!!!!!! what the fuck is this
-                cur = next;
-            }
+//                cur = next;
+//            }
         }
         std::cout<<"leaving delete min" <<std::endl;
         return x;
     }
 
     void insert(int key, int val) {
-//        std::cout << "inserting val =" << val <<", key = " << key << std::endl;
+        num_of_elements++;
+        if (num_of_elements % 10000 == 0){
+            std::cout<<num_of_elements<<std::endl;
+        }
         int height = getRandomHeight();
         skiplistNode *newNode = new skiplistNode(key, val, height);
         std::vector < skiplistNode * > preds(this->levels, nullptr);
@@ -282,31 +298,19 @@ public :
 
 skiplist q = skiplist(LEVELS);
 
-bool finished_work(bool * done, int size) {
-    for (int i = 0; i < size; i++) {
-        if (!done[i]) {
-            return false;
-        }
-    }
-    return true;
-}
-
-
 void relax(skiplist *queue, int * distances, std::mutex **offersLocks, std::vector<Offer *> &offers,
            Vertex *vertex, int alt) {
-    Offer *curr_offer;
+//    Offer *curr_offer;
 
     //// critical section /////
-    offersLocks[vertex->index]->lock();
+//    offersLocks[vertex->index]->lock();
     if (alt < distances[vertex->index]) {
-        curr_offer = offers[vertex->index];
-        if (curr_offer == NULL || alt < curr_offer->dist) {//todo- look into changing it to "alt<vertex->dist"
-            Offer *new_offer = new Offer(vertex, alt);
-            queue->insert(alt, vertex->index);//todo- check this
-            offers[vertex->index] = new_offer;
-        }
+//        curr_offer = offers[vertex->index];
+//            Offer *new_offer = new Offer(vertex, alt);
+        queue->insert(alt, vertex->index);//todo- check this
+//            offers[vertex->index] = new_offer;
     }
-    offersLocks[vertex->index]->unlock();
+//    offersLocks[vertex->index]->unlock();
     /////end of critical section/////
 }
 
@@ -348,29 +352,27 @@ void *parallelDijkstra(void *void_input) {
     int weight;
     int num_of_threads = 80;
     while (true) {
-        if (tid == 1){
-            std::cout<<"starting while" << std::endl;
-        }
-        working_status.lock();
-        if (tid == 1){
-            std::cout<<"after lock" << std::endl;
-        }
-        skiplistNode *min_offer_int = queue->deleteMin();
-        if (tid == 1){
-            std::cout<<"after delete min" << std::endl;
-        }
-        if (min_offer_int == nullptr)
+        if (tid == 1)
+            std::cout<<"in while" <<std::endl;
+
+        const auto start = std::chrono::high_resolution_clock::now();
+//        if (tid == 1)
+//        std::cout<<"# "<<tid<<": waiting for lock" <<std::endl;
+//        working_status.lock();
+//        if (tid == 1)
+//        std::cout<<"*************************** # "<<tid<<": in lock! before delete min" <<std::endl;
+        skiplistNode * shortest_distance_node = queue->deleteMin();
+        if (shortest_distance_node == nullptr)
             done[tid] = true; // 1 is done. change cp to num of thread
         else
             done[tid] = false;
-        working_status.unlock();
-        if (tid == 1){
-            std::cout<<"after unlock" << std::endl;
-        }
+//        std::cout<<"#"<<tid<<": unlocking" <<std::endl;
+//        const auto end = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - start).count();
+//        std::cout <<"#" << tid<< ": workding status lock took " << end << "ms" << std::endl;
+//        working_status.unlock();
 
-        if (min_offer_int == nullptr) {
+        if (shortest_distance_node == nullptr) {
             std::cout << "min offer is nullpter " <<std::endl;
-
             int k = 0;
             while (done[k] && k < num_of_threads)
                 k++;
@@ -379,29 +381,33 @@ void *parallelDijkstra(void *void_input) {
             else
                 continue;
         }
-        //done[tid] = false;
-        std::cout << tid <<" deleted node = "<< min_offer_int->key <<std::endl;
 
-        curr_v = G->vertices[min_offer_int->value];
-        curr_dist = min_offer_int->key;//todo - check this
+        std::cout << tid <<" deleted node = "<< shortest_distance_node->key <<"(key), " << shortest_distance_node->value<< " (value)" <<std::endl;
+        curr_v = G->vertices[shortest_distance_node->value];
+
+        curr_dist = shortest_distance_node->key;//todo - check this
 
         ////critical section - updating distance vector//////
-        input->distancesLocks[min_offer_int->value]->lock();
-        if (curr_dist < input->distances[min_offer_int->value]) {
-            input->distances[min_offer_int->value] = curr_dist; //todo remove field dist from vertex
+        input->distancesLocks[shortest_distance_node->value]->lock();
+        if (curr_dist < input->distances[shortest_distance_node->value]) {
+            input->distances[shortest_distance_node->value] = curr_dist; //todo remove field dist from vertex
             explore = true;
-
         } else {
             explore = false;
         }
-        input->distancesLocks[min_offer_int->value]->unlock();
+        input->distancesLocks[shortest_distance_node->value]->unlock();
         ////end of critical section/////
         if (explore) {
             for (int i = 0; i < (curr_v->neighbors.size()); i++) {
+//                std::cout<<"inserting " <<curr_v->neighbors.size() <<std::endl;
                 neighbor = curr_v->neighbors[i].first;
                 weight = curr_v->neighbors[i].second;
                 alt = curr_dist + weight;
-                relax(queue, input->distances, input->offersLocks, input->offers, neighbor, alt);
+                const auto start = std::chrono::high_resolution_clock::now();
+                queue->insert(alt, neighbor->index);//todo- check this
+                const auto end = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - start).count();
+                if (i % 100 == 0 && tid == 1)
+                    std::cout << "insert() took " << end << "ms" << std::endl;
             }
         }
     }//end of while
@@ -478,7 +484,6 @@ int main(int argc, char *argv[]) {
     token = strtok(NULL, " ");
     source_index = strtol(token, &n, 0);
     G->source = source_index;
-
     G->vertices.resize(num_vertices);
     Vertex *source_vertex = new Vertex();
     source_vertex->dist = 0;
@@ -518,6 +523,8 @@ int main(int argc, char *argv[]) {
         weight = strtol(strtok(NULL, " "), &m, 0);
 
         v1->index = v1_index;
+        v1->dist = 1000000000;
+        v2->dist = 1000000000;
         v2->index = v2_index;
         //Weight
         v1->neighbors.push_back(make_pair(v2, weight));
