@@ -9,6 +9,7 @@
 #include<bits/stdc++.h>
 #include <string>
 #include "recordmgr/record_manager.h"
+#include <chrono>
 
 
 
@@ -18,20 +19,35 @@ static int num_of_elements;
 
 std::mutex working_status;
 
-#define LEVELS 25//log n (10^7)
+#define LEVELS 20//log n (10^7)
 
-int getRandomHeight() {
-    int random_num = rand();
+//int getRandomHeight() {
+//    int random_num = rand();
+//
+//    int height = 1;
+//    while (random_num % 2 == 0 && height <= LEVELS-1){
+//        height++;
+//        random_num = random_num >> 2;
+//    }
+//    //1/2^n //check if the ith bitb is 1.
+//
+//    return height;
+//}
 
-    int height = 1;
-    while (random_num % 2 == 0 && height <= LEVELS-1){
-        height++;
-        random_num = random_num >> 2;
-    }
-    //1/2^n //check if the ith bitb is 1.
-
-    return height;
+int getRandomHeight(){
+    unsigned int r = rand();
+    r = r * 1103515245 + 12345;
+    r &= (1u << (LEVELS - 1)) - 1;
+    /* uniformly distributed bits => geom. dist. level, p = 0.5 */
+    int level = __builtin_ctz(r) + 1;
+//    std::cout<<"level = "<< level<<std::endl;
+    if (!(1 <= level && level <= 32))
+        return getRandomHeight();
+    assert(1 <= level && level <= 32);
+    return level;
 }
+
+
 
 
 class skiplistNode {
@@ -95,7 +111,10 @@ public:
     skiplistNode *head;
     skiplistNode *tail;
     int levels = LEVELS;
-    int BOUND_OFFSET = 10000;//todo - wtf
+    int BOUND_OFFSET = 10000;
+    int size = 0;
+
+
 
     skiplist(int levels) {
         this->tail = new skiplistNode(5555555, 0, LEVELS);
@@ -105,16 +124,47 @@ public:
     }
 
 
+  ///unit testing///
+
+    void num_of_elements_in_level(){
+        skiplistNode * node = this->head;
+        for (int i = 0; i < LEVELS; i++) {
+            int counter = 0;
+            skiplistNode *nextNode = node->getNextNodeUnmarked(i);
+            bool isNextDeleted = node->getIsNextNodeDeleted();
+            bool to_continue = true;
+            while (to_continue) {
+                if (!isNextDeleted)
+                    counter++;
+                isNextDeleted = nextNode->getIsNextNodeDeleted();
+                nextNode = nextNode->getNextNodeUnmarked(i);
+                if (!nextNode) {
+                    to_continue = false;
+                } else
+                    to_continue = true;
+            }
+            std::cout<<"LEVEL " << i << ", elements = " << counter << std::endl;
+        }
+    }
+
+  /////////////////
+
+
     void locatePreds(int k, std::vector<skiplistNode *> &preds, std::vector<skiplistNode *> &succs,
-                     skiplistNode *del) {
+                     skiplistNode *del, int tid) {
         int i = this->levels - 1;
         skiplistNode * pred;
+        pred = this->head;
+
         while (i >= 0) {
-            pred = this->head;
             skiplistNode * cur = pred->getNextNodeUnmarked(i);
             int isCurDeleted = pred->getIsNextNodeDeleted();
             bool isNextDeleted = cur->getIsNextNodeDeleted();
+
+            auto t1 = std::chrono::high_resolution_clock::now();
+            int j = 0;
             while (cur->key < k || isNextDeleted || ((i == 0) && isCurDeleted)) {
+                j++;
                 if ((isCurDeleted) && i == 0) { //if there is a level 0 node deleted without a "delete flag" on:
                     del = cur;
                 }
@@ -123,6 +173,11 @@ public:
                 isCurDeleted = pred->getIsNextNodeDeleted();
                 isNextDeleted = cur->getIsNextNodeDeleted();
             }
+            auto t2 = std::chrono::high_resolution_clock::now();
+            auto duration = std::chrono::duration_cast<std::chrono::milliseconds>( t2 - t1 ).count();
+//            if(tid == 1)
+//                std::cout<<"while loop number " << i << " took " << duration <<" milliseconds, iterations = "<< j <<", size = "<<this->size<<std::endl;
+
             preds[i] = pred;
             succs[i] = cur;
             i--;
@@ -174,13 +229,15 @@ public:
                 newHead = x; //head may not surpass pending insert, inserting node is "newhead".
             }
             skiplistNode *nxt = __sync_fetch_and_or(&x->next[0], 1); //logical deletion of successor to x.
+//            std::cout<<"node key = " << x->key << ", value = "<< x->value<<std::endl;
             assert(x->getIsNextNodeDeleted());
             offset++;
             x = next;
         } while (isNextNodeDeleted);
 
         int v = x->value;
-        std::cout<<"offxet = " << offset << ", BOUND OFFSET = " << this->BOUND_OFFSET << std::endl;
+        this->size--;//todo - delete this
+//        std::cout<<"offxet = " << offset << ", BOUND OFFSET = " << this->BOUND_OFFSET << std::endl;
         if (offset < this->BOUND_OFFSET) {//if the offset is big enough - try to perform memory reclamation
             return x;
         }
@@ -188,12 +245,12 @@ public:
             newHead = x;
         }
 
-        std::cout<<"!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!1"<<std::endl;
+//        std::cout<<"!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!1"<<std::endl;
 
         if (__sync_bool_compare_and_swap(&this->head->next[0], observedHead_marked, newHead)) {
-            std::cout<<"before restructure"<<std::endl;
+//            std::cout<<"before restructure"<<std::endl;
             restructure();
-            std::cout<<"after restructure"<<std::endl;
+//            std::cout<<"after restructure"<<std::endl;
 
             skiplistNode *cur = observedHead_unmarked;
 //            while (cur != newHead) {
@@ -203,26 +260,33 @@ public:
 //                cur = next;
 //            }
         }
-        std::cout<<"leaving delete min" <<std::endl;
+//        std::cout<<"leaving delete min" <<std::endl;
         return x;
     }
 
-    void insert(int key, int val) {
-        num_of_elements++;
-        if (num_of_elements % 10000 == 0){
-            std::cout<<num_of_elements<<std::endl;
-        }
+
+    void insert(int key, int val, int tid) {
         int height = getRandomHeight();
         skiplistNode *newNode = new skiplistNode(key, val, height);
         std::vector < skiplistNode * > preds(this->levels, nullptr);
         std::vector < skiplistNode * > succs(this->levels, nullptr);
 
         skiplistNode *del = nullptr;
+
+        int while_counter = 0;
         do {
-            this->locatePreds(key, preds, succs, del);
+            auto s1 = std::chrono::high_resolution_clock::now();
+            this->locatePreds(key, preds, succs, del, tid);
+            if (tid == 1 && this->size % 100 == 0){
+                auto s2 = std::chrono::high_resolution_clock::now();
+                auto s_duration = std::chrono::duration_cast<std::chrono::milliseconds>( s2 - s1 ).count();
+//                std::cout<<"locatePreds took " << s_duration <<" milliseconds"<<std::endl;
+            }
             newNode->next[0] = succs[0];
         } while (!__sync_bool_compare_and_swap(&preds[0]->next[0], succs[0], newNode));
+
         int i = 1;
+
         while (i < height) { //insert node at higher levels (bottoms up)
             newNode->next[i] = succs[i];
             if (newNode->getIsNextNodeDeleted() || succs[i]->getIsNextNodeDeleted()|| succs[i] == del)
@@ -230,12 +294,13 @@ public:
             if (__sync_bool_compare_and_swap(&(preds[i]->next[i]), succs[i], newNode)) {
                 i++; // if successful - ascend to next level
             } else {
-                this->locatePreds(key, preds, succs, del);
+                this->locatePreds(key, preds, succs, del, tid);
                 if (succs[0] != newNode)
                     break; //new has been deleted
             }
         }
         newNode->isInserting = false; //allow batch deletion past this node
+        this->size++; //todo - delete this
     }
 
     void printSkipList() {
@@ -307,7 +372,7 @@ void relax(skiplist *queue, int * distances, std::mutex **offersLocks, std::vect
     if (alt < distances[vertex->index]) {
 //        curr_offer = offers[vertex->index];
 //            Offer *new_offer = new Offer(vertex, alt);
-        queue->insert(alt, vertex->index);//todo- check this
+        queue->insert(alt, vertex->index, 0);//todo- check this
 //            offers[vertex->index] = new_offer;
     }
 //    offersLocks[vertex->index]->unlock();
@@ -352,25 +417,16 @@ void *parallelDijkstra(void *void_input) {
     int weight;
     int num_of_threads = 80;
     while (true) {
-        if (tid == 1)
-            std::cout<<"in while" <<std::endl;
+        if (queue->size % 100000 == 0){
+            std::cout<<queue->size<<std::endl;
+        }
 
-        const auto start = std::chrono::high_resolution_clock::now();
-//        if (tid == 1)
-//        std::cout<<"# "<<tid<<": waiting for lock" <<std::endl;
-//        working_status.lock();
-//        if (tid == 1)
-//        std::cout<<"*************************** # "<<tid<<": in lock! before delete min" <<std::endl;
+        if (queue->size == 0){
+            done[tid] = true;
+        }
+
+        const auto start_1 = std::chrono::high_resolution_clock::now();
         skiplistNode * shortest_distance_node = queue->deleteMin();
-        if (shortest_distance_node == nullptr)
-            done[tid] = true; // 1 is done. change cp to num of thread
-        else
-            done[tid] = false;
-//        std::cout<<"#"<<tid<<": unlocking" <<std::endl;
-//        const auto end = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - start).count();
-//        std::cout <<"#" << tid<< ": workding status lock took " << end << "ms" << std::endl;
-//        working_status.unlock();
-
         if (shortest_distance_node == nullptr) {
             std::cout << "min offer is nullpter " <<std::endl;
             int k = 0;
@@ -381,11 +437,11 @@ void *parallelDijkstra(void *void_input) {
             else
                 continue;
         }
-
-        std::cout << tid <<" deleted node = "<< shortest_distance_node->key <<"(key), " << shortest_distance_node->value<< " (value)" <<std::endl;
+//        std::cout << tid <<" deleted node = "<< shortest_distance_node->key <<"(key), " << shortest_distance_node->value<< " (value)" <<std::endl;
         curr_v = G->vertices[shortest_distance_node->value];
 
         curr_dist = shortest_distance_node->key;//todo - check this
+
 
         ////critical section - updating distance vector//////
         input->distancesLocks[shortest_distance_node->value]->lock();
@@ -397,19 +453,37 @@ void *parallelDijkstra(void *void_input) {
         }
         input->distancesLocks[shortest_distance_node->value]->unlock();
         ////end of critical section/////
+
+        int inserted = 0;
+
         if (explore) {
+            bool to_insert = false;
+            const auto start = std::chrono::high_resolution_clock::now();
+
             for (int i = 0; i < (curr_v->neighbors.size()); i++) {
-//                std::cout<<"inserting " <<curr_v->neighbors.size() <<std::endl;
+                to_insert = false;
                 neighbor = curr_v->neighbors[i].first;
                 weight = curr_v->neighbors[i].second;
                 alt = curr_dist + weight;
-                const auto start = std::chrono::high_resolution_clock::now();
-                queue->insert(alt, neighbor->index);//todo- check this
-                const auto end = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - start).count();
-                if (i % 100 == 0 && tid == 1)
-                    std::cout << "insert() took " << end << "ms" << std::endl;
+                input->distancesLocks[neighbor->index]->lock();
+                if (alt < input->distances[neighbor->index])
+                    to_insert = true;
+                input->distancesLocks[neighbor->index]->unlock();
+                if (to_insert)
+                    inserted++;
+                    queue->insert(alt, neighbor->index, tid);//todo- check this
+//                if (i % 100 == 0 && tid == 1)
+//                    std::cout << "insert() took " << _end << "ms" << std::endl;
             }
+            const auto _end = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - start).count();
+//            if (tid == 1)
+//                std::cout<<"******************************"<<" for loop took: " << _end << " ms, inserted "<<inserted << "/"<< curr_v->neighbors.size() <<std::endl;
+//                std::cout<<"******************************"<<" average insert time: " << _end/inserted << " ms"<<std::endl;
         }
+        const auto end_1 = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - start_1).count();
+//        if(tid == 1)
+//            std::cout<<"iteration took " << end_1<<" milliseconds. inserted = "<< inserted<<std::endl;
+
     }//end of while
 }
 
@@ -434,7 +508,7 @@ void dijkstra_shortest_path(Graph *G) {
         distances[i] = 1000000000;
     }
 
-    queue->insert(0, 0);//insert first element to queue. First element: key (dist) = 0, value(index) = 0 (this is the soure)
+    queue->insert(0, 0, 0);//insert first element to queue. First element: key (dist) = 0, value(index) = 0 (this is the soure)
     pthread_t threads[num_of_theads];
     for (int i = 0; i < num_of_theads; i++) {
         done[i] = false; //set thread[i] to 'not-done'
