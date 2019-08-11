@@ -37,8 +37,6 @@ int getRandomHeight(){
 
 
     assert(1 <= level && level <= 32);
-
-
     return level;
 }
 
@@ -54,7 +52,6 @@ public:
     int value;
     int levels;
     std::vector<skiplistNode *> next;
-    volatile bool safe;
     record_manager<reclaimer_debra<>,allocator_new<>,pool_none<>,skiplistNode> * mgr; //todo - check DEBRA
 
 
@@ -66,7 +63,6 @@ public:
     }
 
     skiplistNode() {}
-
 
     bool getIsNextNodeDeleted() {
         if (this->next.size() > 0) {
@@ -120,32 +116,6 @@ public:
     }
 
 
-  ///unit testing///
-
-    void num_of_elements_in_level(){
-        skiplistNode * node = this->head;
-        for (int i = 0; i < LEVELS; i++) {
-            int counter = 0;
-            skiplistNode *nextNode = node->getNextNodeUnmarked(i);
-            bool isNextDeleted = node->getIsNextNodeDeleted();
-            bool to_continue = true;
-            while (to_continue) {
-                if (!isNextDeleted)
-                    counter++;
-                isNextDeleted = nextNode->getIsNextNodeDeleted();
-                nextNode = nextNode->getNextNodeUnmarked(i);
-                if (!nextNode) {
-                    to_continue = false;
-                } else
-                    to_continue = true;
-            }
-            std::cout<<"LEVEL " << i << ", elements = " << counter << std::endl;
-        }
-    }
-
-  /////////////////
-
-
     void locatePreds(int k, std::vector<skiplistNode *> &preds, std::vector<skiplistNode *> &succs,
                      skiplistNode *del, int tid) {
         int i = this->levels - 1;
@@ -157,10 +127,7 @@ public:
             int isCurDeleted = pred->getIsNextNodeDeleted();
             bool isNextDeleted = cur->getIsNextNodeDeleted();
 
-            auto t1 = std::chrono::high_resolution_clock::now();
-            int j = 0;
             while (cur->key < k || isNextDeleted || ((i == 0) && isCurDeleted)) {
-                j++;
                 if ((isCurDeleted) && i == 0) { //if there is a level 0 node deleted without a "delete flag" on:
                     del = cur;
                 }
@@ -169,10 +136,6 @@ public:
                 isCurDeleted = pred->getIsNextNodeDeleted();
                 isNextDeleted = cur->getIsNextNodeDeleted();
             }
-            auto t2 = std::chrono::high_resolution_clock::now();
-            auto duration = std::chrono::duration_cast<std::chrono::milliseconds>( t2 - t1 ).count();
-//            if(tid == 1)
-//                std::cout<<"while loop number " << i << " took " << duration <<" milliseconds, iterations = "<< j <<", size = "<<this->size<<std::endl;
 
             preds[i] = pred;
             succs[i] = cur;
@@ -233,8 +196,6 @@ public:
                 newHead = x; //head may not surpass pending insert, inserting node is "newhead".
             }
             skiplistNode *nxt = __sync_fetch_and_or(&x->next[0], 1); //logical deletion of successor to x.
-//            std::cout<<"node key = " << x->key << ", value = "<< x->value<<std::endl;
-//            assert(x->getIsNextNodeDeleted());
             offset++;
             x = next;
         } while (isNextNodeDeleted);
@@ -300,7 +261,7 @@ public:
             }
         }
         sizelock->lock();
-        this->size++; //todo - delete this
+        this->size++;
         sizelock->unlock();
 
         newNode->isInserting = false; //allow batch deletion past this node
@@ -348,19 +309,11 @@ class Graph {
 public:
     int source;//why is this needed?
     vector<Vertex *> vertices;
-    std::mutex **offerLock; //used to prevent multiple threads from concurrently changing the priority (distance) to the same node.
     Graph() {};
 
     ~Graph() {};//todo
 };
 
-class Offer {
-public :
-    Vertex *vertex;
-    int dist;
-
-    Offer(Vertex *vertex, int dist) : vertex(vertex), dist(dist) {}
-};
 
 //////////////////////////////////////////////////////////////////
 /// DIJKSTRA ///
@@ -373,21 +326,17 @@ public:
     bool *done;
     skiplist *queue;
     Graph *G;
-    std::mutex **offersLocks;
     std::mutex **distancesLocks;
     int tid;
     int * distances;
-    std::vector<Offer *> offers;
 
-    threadInput(bool *done, skiplist *queue, Graph *G, int * distances, std::mutex **offersLocks,
-                std::mutex **distancesLocks, std::vector<Offer *> offers, int tid) {
+    threadInput(bool *done, skiplist *queue, Graph *G, int * distances,
+                std::mutex **distancesLocks, int tid) {
         this->done = done;
         this->queue = queue;
         this->G = G;
         this->distances = distances;
-        this->offersLocks = offersLocks;
         this->distancesLocks = distancesLocks;
-        this->offers = offers;
         this->tid = tid;
     }
 };
@@ -483,18 +432,14 @@ void *parallelDijkstra(void *void_input) {
 void dijkstra_shortest_path(Graph *G) {
     int num_of_theads = 80; //todo - optimize this
     skiplist *queue = new skiplist(LEVELS); //global
-    Offer *min_offer;
     Vertex *curr_v;
     int * distances = (int * )malloc(sizeof(int)*G->vertices.size());
-    std::vector < Offer * > offers(G->vertices.size(), nullptr);
     bool * done = (bool * )malloc(sizeof(bool)*num_of_theads);
-    std::mutex **offersLocks = new std::mutex *[G->vertices.size()];
     std::mutex **distancesLocks = new std::mutex *[G->vertices.size()];
 
 
     //init locks
     for (int i = 0; i < G->vertices.size(); i++) {
-        offersLocks[i] = new std::mutex();
         distancesLocks[i] = new std::mutex();
         distances[i] = 1000000000;
     }
@@ -503,7 +448,7 @@ void dijkstra_shortest_path(Graph *G) {
     pthread_t threads[num_of_theads];
     for (int i = 0; i < num_of_theads; i++) {
         done[i] = false; //set thread[i] to 'not-done'
-        threadInput *input = new threadInput(done, queue, G, distances, offersLocks, distancesLocks, offers, i);
+        threadInput *input = new threadInput(done, queue, G, distances, distancesLocks, i); //todo - delete i
         pthread_create(&threads[i], NULL, &parallelDijkstra, (void *) input);
     }
 
@@ -588,8 +533,8 @@ int main(int argc, char *argv[]) {
         weight = strtol(strtok(NULL, " "), &m, 0);
 
         v1->index = v1_index;
-        v1->dist = 1000000000;
-        v2->dist = 1000000000;
+        v1->dist = INT_MAX;
+        v2->dist = INT_MAX;
         v2->index = v2_index;
         //Weight
         v1->neighbors.push_back(make_pair(v2, weight));
