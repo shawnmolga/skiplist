@@ -18,7 +18,7 @@ using namespace std;
 static int num_of_elements;
 
 
-#define LEVELS 25//log n (10^7)
+#define LEVELS 20//log n (10^7)
 
 
 int getRandomHeight(){
@@ -26,7 +26,7 @@ int getRandomHeight(){
 
     r = r * 1103515245 + 12345;
     r &= (1u << (LEVELS - 1)) - 1;
-        /* uniformly distributed bits => geom. dist. level, p = 0.5 */
+    /* uniformly distributed bits => geom. dist. level, p = 0.5 */
     int level = __builtin_ctz(r) + 1;
 
     if (!(1 <= level && level <= 32)) {
@@ -35,6 +35,7 @@ int getRandomHeight(){
         return level;
     }
 
+
     assert(1 <= level && level <= 32);
     return level;
 }
@@ -42,7 +43,7 @@ int getRandomHeight(){
 
 
 
-struct skiplistNode {
+class skiplistNode {
     /*array of pointers , entry i points to "next" skiplistNode on level i
       the last bit in next[i] indicates whether or not next[i] is deleted or not */
 public:
@@ -51,8 +52,6 @@ public:
     int value;
     int levels;
     std::vector<skiplistNode *> next;
-    record_manager<reclaimer_debra<>,allocator_new<>,pool_none<>,skiplistNode> * mgr; //todo - check DEBRA
-
 
     skiplistNode(int key, int data, int levels, skiplistNode *val = nullptr) : isInserting(true), key(key), value(data),
                                                                                levels(levels) {
@@ -62,8 +61,6 @@ public:
     }
 
     skiplistNode() {}
-
-
 
     bool getIsNextNodeDeleted() {
         if (this->next.size() > 0) {
@@ -106,29 +103,25 @@ public:
     int BOUND_OFFSET = 10000;
     int size = 0;
     std::mutex * sizelock = new std::mutex();
-    bool restructuring = false;
-    std::vector<skiplistNode * > to_delete;
-    volatile bool safe;
-    record_manager<reclaimer_debra<>,allocator_new<>,pool_none<>,skiplistNode> * mgr;
+
+    record_manager<reclaimer_debra<>,allocator_new<>,pool_none<>,skiplistNode> * mgr; //todo - check DEBRA
+
 
     skiplist(int levels) {
+        int num_of_threads = 80;
+        mgr = new record_manager<reclaimer_debra<>,allocator_new<>,pool_none<>,skiplistNode>(num_of_threads,SIGQUIT);
+
+//        this->tail = new skiplistNode(5555555, 0, LEVELS);
         this->tail = new skiplistNode(INT_MAX, 0, LEVELS);
         this->tail->isInserting = false;
+//        this->head = new skiplistNode(-5555555, 0, LEVELS, this->tail);
         this->head = new skiplistNode(INT_MIN, 0, LEVELS, this->tail);
         this->head->isInserting = false;
-        mgr = new record_manager<reclaimer_debra<>,allocator_new<>,pool_none<>,skiplistNode>(2,SIGQUIT);
     }
 
-    ~ skiplist(){
-        std::cout<<"in skiplist dest" <<std::endl;
-        delete head;
-        delete tail;
-        delete sizelock;
-    }
 
     void locatePreds(int k, std::vector<skiplistNode *> &preds, std::vector<skiplistNode *> &succs,
                      skiplistNode *del, int tid) {
-        mgr->enterQuiescentState(tid); //todo - do i need this if there is no "new" or "delete"?
         int i = this->levels - 1;
         skiplistNode * pred;
         pred = this->head;
@@ -159,9 +152,9 @@ public:
         skiplistNode * pred = this->head;
         skiplistNode * cur;
         skiplistNode * h;
-        while (i > 0) {
-            h = this->head->next[i];//record observed head
-            bool is_h_next_deleted = h->getIsNextNodeDeleted();
+        while (i > 0) {//todo - should this be i>=0???
+            h = this->head->next[i];//record observed heada
+            bool    is_h_next_deleted = h->getIsNextNodeDeleted();
             skiplistNode *cur = pred->next[i]; //take one step forwarad
             bool is_cur_next_deleted = cur->getIsNextNodeDeleted();
             if (!is_h_next_deleted) {
@@ -176,23 +169,16 @@ public:
             }
             if(!pred->getIsNextNodeDeleted())//todo - delete
                 std::cout<<"!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! "<<pred->key << ", "<<pred->value<<std::endl;
+//            assert(pred->getIsNextNodeDeleted());//todo - delete
 
             if (__sync_bool_compare_and_swap(&this->head->next[i], h, cur)) { // if CAS fails, the same operation will be done for the same level
                 i--;
-            }
-            else{
-                std::cout<<"CAS failed" <<std::endl;
             }
         }
     }
 
     skiplistNode *deleteMin(int tid) {
-        mgr->enterQuiescentState(tid);
-        std::cout<<"in delete min"<<std::endl;
-
         skiplistNode *x = this->head;
-        std::cout<<"hi . head = "<<x->key<<std::endl;
-        std::cout<<"hi . head->next = "<<x->next[0]->key<<std::endl;
         int offset = 0;
         skiplistNode *newHead = nullptr;
         skiplistNode *observedHead_marked = x->getNextNodeMarked(0); //first real head (after sentinel)
@@ -204,7 +190,8 @@ public:
             i++;
             next = x->getNextNodeUnmarked(0);
             isNextNodeDeleted = x->getIsNextNodeDeleted();
-            if (x->getNextNodeUnmarked(0) == this->tail) { //if queue is empty - return
+//            if (x->getNextNodeUnmarked(0) == this->tail) { //if queue is empty - return
+            if (next == this->tail) { //if queue is empty - return
                 this->sizelock->lock();
                 this->size = 0;
                 this->sizelock->unlock();
@@ -217,8 +204,8 @@ public:
             offset++;
             x = next;
         } while (isNextNodeDeleted);
-
         int v = x->value;
+
 
         this->sizelock->lock();
         if (this->size > 0)
@@ -227,7 +214,6 @@ public:
 
 
         if (offset < this->BOUND_OFFSET) {//if the offset is big enough - try to perform memory reclamation
-            std::cout<<"returning x = "<<x->key<<std::endl;
             return x;
         }
         if (newHead == 0) {
@@ -235,28 +221,16 @@ public:
         }
 
         if (__sync_bool_compare_and_swap(&this->head->next[0], observedHead_marked, newHead)) {
-            if (__sync_bool_compare_and_swap(&this->restructuring, false, true)) {
-                restructure();
-                skiplistNode * cur = observedHead_unmarked;
-                int i = 0;
-                while (cur != newHead) {
-                    next = cur->getNextNodeUnmarked(0);
-                    cur = next;
-                    i++;
-                }
+            restructure();
 
-                if (__sync_bool_compare_and_swap(&this->restructuring, true, false)) {
-                    std::cout<<"this->restructuring = false. this->to_delete.size() = "<< this->to_delete.size() << std::endl;
-
-                }
-                else{
-                    std::cout<<"something really really bad happened"<< this->to_delete.size() << std::endl;
-
-                }
-            }
+            skiplistNode *cur = observedHead_unmarked;
+//            while (cur != newHead) {
+//                std::cout << "in while after restructure" << std::endl;
+//                next = observedHead_unmarked->getNextNodeUnmarked(0);
+//                markRecycle(cur); //todo !!!!!!!!!!!!!!!!!!!!! what the fuck is this
+//                cur = next;
+//            }
         }
-        std::cout<<"leaving delete min"<<std::endl;
-
         return x;
     }
 
@@ -264,7 +238,9 @@ public:
     void insert(int key, int val, int tid) {
         mgr->enterQuiescentState(tid);
         int height = getRandomHeight();
-//        skiplistNode * newNode = new skiplistNode(key, val, height);
+
+        // skiplistNode *newNode = new skiplistNode(key, val, height);
+
         skiplistNode* newNode = mgr->template allocate<skiplistNode>(tid); //todo - what the fuck
         newNode->key=key;
         newNode->value=val;
@@ -275,27 +251,22 @@ public:
         }
 
 
-        sizelock->lock();
-        this->to_delete.push_back(newNode);
-        sizelock->unlock();
+
         std::vector < skiplistNode * > preds(this->levels, nullptr);
         std::vector < skiplistNode * > succs(this->levels, nullptr);
+
         skiplistNode *del = nullptr;
+
+        int while_counter = 0;
         do {
-            std::cout << "before locate preds" <<std::endl;
+            auto s1 = std::chrono::high_resolution_clock::now();
             this->locatePreds(key, preds, succs, del, tid);
-            std::cout<<"after locate preds"<<std::endl;
-
-//            newNode->next[0] = succs[0];
-            newNode->next.push_back(succs[0]);
-
-            std::cout<<"after             newNode->next[0] = succs[0];"<<std::endl;
+            newNode->next[0] = succs[0];
         } while (!__sync_bool_compare_and_swap(&preds[0]->next[0], succs[0], newNode));
 
-        std::cout<<"!!!!!!!!!!!!!!!!!!!!!!!!1 " << head->next[0]->key<<std::endl;
 
         int i = 1;
-        std::cout<<"before first wile"<<std::endl;
+
         while (i < height) { //insert node at higher levels (bottoms up)
             newNode->next[i] = succs[i];
             if (newNode->getIsNextNodeDeleted() || succs[i]->getIsNextNodeDeleted()|| succs[i] == del)
@@ -308,14 +279,12 @@ public:
                     break; //new has been deleted
             }
         }
-        std::cout<<"after first wile"<<std::endl;
-
         sizelock->lock();
         this->size++;
         sizelock->unlock();
 
         newNode->isInserting = false; //allow batch deletion past this node
-
+        mgr->leaveQuiescentState(tid);
     }
 
     void printSkipList() {
@@ -368,6 +337,9 @@ public:
 //////////////////////////////////////////////////////////////////
 /// DIJKSTRA ///
 
+skiplist q = skiplist(LEVELS);
+
+
 class threadInput {
 public:
     bool *done;
@@ -400,7 +372,7 @@ void *parallelDijkstra(void *void_input) {
     int curr_dist = -1;
     int alt;
     int weight;
-    int num_of_threads = 2;
+    int num_of_threads = 80;
     while (true) {
         if (queue->size % 100000 == 0){
             std::cout<<queue->size<<std::endl;
@@ -409,16 +381,16 @@ void *parallelDijkstra(void *void_input) {
         if (queue->size <=0){
             done[tid] = true;
         }
-        else
-            done[tid] = false;
 
         skiplistNode * shortest_distance_node = nullptr;
-        if (!done[tid])
-            if (tid == 1)
-                std::cout<<"before delete min"<<std::endl;
+        if (!done[tid]){
+            const auto start = std::chrono::high_resolution_clock::now();
             shortest_distance_node = queue->deleteMin(tid);
-            if (tid == 1)
-                std::cout<<"after delete min"<<std::endl;
+            const auto end = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - start).count();
+            if (tid==1 && queue->size % 100 == 0){
+                std::cout << "deleteMin() took " << end << "ms, queue size = "<<queue->size << std::endl;
+            }
+        }
         else{
             int k = 0;
             while (done[k] && k < num_of_threads)
@@ -431,8 +403,7 @@ void *parallelDijkstra(void *void_input) {
 
 
         if (shortest_distance_node == nullptr) {
-            if (tid == 1)
-                std::cout << "min offer is nullpter " <<std::endl;
+            std::cout << "min offer is nullpter " <<std::endl;
             done[tid] = true;
             int k = 0;
             while (done[k] && k < num_of_threads)
@@ -445,7 +416,6 @@ void *parallelDijkstra(void *void_input) {
 
         done[tid] = false;
         curr_v = G->vertices[shortest_distance_node->value];
-        std::cout<<"shortest distance node = " << shortest_distance_node->key << std::endl;
 
         curr_dist = shortest_distance_node->key;//todo - check this
 
@@ -460,9 +430,6 @@ void *parallelDijkstra(void *void_input) {
         ////end of critical section/////
 
         int inserted = 0;
-        if (tid == 1) {
-            std::cout << "before explore" << std::endl;
-        }
 
         if (explore) {
             bool to_insert = false;
@@ -476,18 +443,14 @@ void *parallelDijkstra(void *void_input) {
                 if (alt < input->distances[neighbor->index])
                     to_insert = true;
                 input->distancesLocks[neighbor->index]->unlock();
-                if (to_insert) {
+                if (to_insert)
                     inserted++;
-                    if (tid == 1)
-                        std::cout << "before delete min" << std::endl;
-                    queue->insert(alt, neighbor->index, tid);//todo- check this
-                    if (tid == 1)
-                        std::cout << "after delete min" << std::endl;
-                }
+                queue->insert(alt, neighbor->index, tid);//todo- check this
             }
         }
 
     }//end of while
+
 }
 
 
@@ -498,44 +461,25 @@ void dijkstra_shortest_path(Graph *G) {
     Vertex *curr_v;
     int * distances = (int * )malloc(sizeof(int)*G->vertices.size());
     bool * done = (bool * )malloc(sizeof(bool)*num_of_theads);
-    std::mutex ** distancesLocks = new std::mutex *[G->vertices.size()];
+    std::mutex **distancesLocks = new std::mutex *[G->vertices.size()];
 
 
     //init locks
     for (int i = 0; i < G->vertices.size(); i++) {
         distancesLocks[i] = new std::mutex();
-        distances[i] = INT_MAX;
+        distances[i] = 1000000000;
     }
-    queue->insert(0, 0, 0);//insert first element to queue. First element: key (dist) = 0, value(index) = 0 (this is the soure)
 
+    queue->insert(0, 0, 0);//insert first element to queue. First element: key (dist) = 0, value(index) = 0 (this is the soure)
     pthread_t threads[num_of_theads];
-    std::vector<threadInput*> to_delete;
     for (int i = 0; i < num_of_theads; i++) {
-        done[i] = false;
-        threadInput * input = new threadInput(done, queue, G, distances, distancesLocks, i); //todo - delete i
-        to_delete.push_back(input);
+        done[i] = false; //set thread[i] to 'not-done'
+        threadInput *input = new threadInput(done, queue, G, distances, distancesLocks, i); //todo - delete i
         pthread_create(&threads[i], NULL, &parallelDijkstra, (void *) input);
     }
 
-    for (long i = 0; i < num_of_theads; i++) {
+    for (long i = 0; i < num_of_theads; i++)
         (void) pthread_join(threads[i], NULL);
-        delete to_delete[i];
-    }
-
-    std::cout << "things to delete = " << queue->to_delete.size() <<std::endl;
-
-    int i;
-    for (i = 0; i <queue->to_delete.size(); i++){
-        delete queue->to_delete.back();
-        queue->to_delete.pop_back();
-    }
-//    std::cout<<i<<std::endl;
-
-    delete queue;
-    for (int i = 0; i < G->vertices.size(); i++) {
-        delete distancesLocks[i];
-    }
-
 
     ofstream myfile;
     myfile.open ("output.txt");
@@ -546,7 +490,10 @@ void dijkstra_shortest_path(Graph *G) {
 
 }
 
+
 int main(int argc, char *argv[]) {
+    const auto start = std::chrono::high_resolution_clock::now();
+
 //    string pathToFile = argv[1];
     std::string pathToFile = "./input_full.txt";
     ifstream f;
@@ -580,7 +527,6 @@ int main(int argc, char *argv[]) {
     source_vertex->dist = 0;
     source_vertex->index = 0;
     G->vertices[0] = source_vertex;
-
     for (int i = 1; i < num_vertices; i++) {
         G->vertices[i] = new Vertex();
     }
@@ -598,8 +544,8 @@ int main(int argc, char *argv[]) {
 
         // copy line
         char str[line.size() + 1];
-        strncpy(str, line.c_str(), line.size() + 1);
 
+        strncpy(str, line.c_str(), line.size() + 1);
         // Returns first token
         token = strtok(str, " ");
 
@@ -624,5 +570,8 @@ int main(int argc, char *argv[]) {
     }   //when we reached here - done inserting all nodes to graph
     G->vertices[0]->dist = 0;
     dijkstra_shortest_path(G);
+    const auto end = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::high_resolution_clock::now() - start).count();
+
+    std::cout << "main() took " << end << "seconds" << std::endl;
     return 0;
 }
