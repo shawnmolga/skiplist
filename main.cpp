@@ -379,27 +379,33 @@ void *parallelDijkstra(void *void_input) {
         }
 
         if (queue->size <=0){
+            std::cout<<"TID # "<<tid<<" is DONE" <<std::endl;
             done[tid] = true;
+        }
+        else{
+            done[tid] = false;
         }
 
         skiplistNode * shortest_distance_node = nullptr;
         if (!done[tid]){
             const auto start = std::chrono::high_resolution_clock::now();
             shortest_distance_node = queue->deleteMin(tid);
-            const auto end = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - start).count();
-            if (tid==1 && queue->size % 100 == 0){
-                std::cout << "deleteMin() took " << end << "ms, queue size = "<<queue->size << std::endl;
+            const auto end = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - start).count();
+            if (tid==1 && queue->size % 1000 == 0){
+                std::cout << "deleteMin() took " << end << " microseconds, queue size = "<<queue->size << std::endl;
             }
         }
-        else{
-            int k = 0;
-            while (done[k] && k < num_of_threads)
-                k++;
-            if (k == num_of_threads)
-                return NULL;
-            else
-                continue;
+        else {
+            std::cout << "TID # " << tid << " is done!!!" << std::endl;
         }
+//            int k = 0;
+//            while (done[k] && k < num_of_threads)
+//                k++;
+//            if (k == num_of_threads)
+//                return NULL;
+//            else
+//                continue;
+//        }
 
 
         if (shortest_distance_node == nullptr) {
@@ -410,8 +416,10 @@ void *parallelDijkstra(void *void_input) {
                 k++;
             if (k == num_of_threads)
                 return NULL;
-            else
+            else {
+                done[tid] = false;
                 continue;
+            }
         }
 
         done[tid] = false;
@@ -431,9 +439,10 @@ void *parallelDijkstra(void *void_input) {
 
         int inserted = 0;
 
-        if (explore) {
-            bool to_insert = false;
 
+        if (explore) {
+            const auto start_explore = std::chrono::high_resolution_clock::now();
+            bool to_insert = false;
             for (int i = 0; i < (curr_v->neighbors.size()); i++) {
                 to_insert = false;
                 neighbor = curr_v->neighbors[i].first;
@@ -447,6 +456,9 @@ void *parallelDijkstra(void *void_input) {
                     inserted++;
                 queue->insert(alt, neighbor->index, tid);//todo- check this
             }
+            const auto end_explore = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - start_explore).count();
+            std::cout << "explore if took " << end_explore << " microseconds, queue size = "<<queue->size << std::endl;
+
         }
 
     }//end of while
@@ -456,7 +468,7 @@ void *parallelDijkstra(void *void_input) {
 
 
 void dijkstra_shortest_path(Graph *G) {
-    int num_of_theads = 2; //todo - optimize this
+    int num_of_theads = 80; //todo - optimize this
     skiplist *queue = new skiplist(LEVELS); //global
     Vertex *curr_v;
     int * distances = (int * )malloc(sizeof(int)*G->vertices.size());
