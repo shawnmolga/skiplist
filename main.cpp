@@ -169,59 +169,26 @@ public:
         }
     }
 
-//     void restructure() {
-//         int i = this->levels - 1;
-//         skiplistNode * pred = this->head;
-//         skiplistNode * cur;
-//         skiplistNode * h;
-//         while (i > 0) {//todo - should this be i>=0???
-//             h = this->head->next[i];//record observed heada
-//             bool is_h_next_deleted = h->getIsNextNodeDeleted();
-//             skiplistNode *cur = pred->next[i]; //take one step forwarad
-//             bool is_cur_next_deleted = cur->getIsNextNodeDeleted();
-//             if (!is_marked_ref(h->next[0])) {
-//                 i--;
-//                 continue;
-//             }
-//             //traverse level until non-marked node is found
-//             while (is_marked_ref(cur->next[0])) {
-//                 pred = cur;
-//                 cur = pred->next[i];
-//                 is_cur_next_deleted = cur->getIsNextNodeDeleted();
-//             }
-//             if(!is_marked_ref(pred->next[0]))//todo - delete
-//                 std::cout<<"!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! "<<pred->key << ", "<<pred->value<<std::endl;
-// //            assert(pred->getIsNextNodeDeleted());//todo - delete
-
-//             if (__sync_bool_compare_and_swap(&this->head->next[i], h, cur)) { // if CAS fails, the same operation will be done for the same level
-//                 i--;
-//             }
-//         }
-//     }
 
     void restructure() {
-        skiplistNode *pred, *cur, *h;
         int i = LEVELS - 1;
+        skiplistNode * pred = this->head;
+        skiplistNode * cur;
+        skiplistNode * h;
 
         pred = this->head;
         while (i > 0) {
-            /* the order of these reads must be maintained */
             h = this->head->next[i]; /* record observed head */
             cur = pred->next[i]; /* take one step forward from pred */
             if (!is_marked_ref(h->next[0])) {
                 i--;
                 continue;
             }
-            /* traverse level until non-marked node is found
-             * pred will always have its delete flag set
-             */
             while(is_marked_ref(cur->next[0])) {
                 pred = cur;
                 cur = pred->next[i];
             }
             assert(is_marked_ref(pred->next[0]));
-        
-            /* swing head pointer */
             if (__sync_bool_compare_and_swap(&this->head->next[i],h,cur))
                 i--;
         }
@@ -302,61 +269,39 @@ public:
         skiplistNode * nxt = NULL;
 
         do {
-            offset++;
-
-            /* expensive, high probability that this cache line has
-             * been modified */
             nxt = x->next[0];
 
-            // tail cannot be deleted
             if (get_unmarked_ref(nxt) == this->tail) {
                 return nullptr;
             }
+            if (newhead == NULL && x->isInserting){
+                newhead = x;
+            }
 
-            /* Do not allow head to point past a node currently being
-             * inserted. This makes the lock-freedom quite a theoretic
-             * matter. */
-            if (newhead == NULL && x->isInserting) newhead = x;
+            if (is_marked_ref(nxt)) continue; //todo - check if deleteing this
 
-            /* optimization */
-            if (is_marked_ref(nxt)) continue;
-            /* the marker is on the preceding pointer */
-            /* linearisation point deletemin */
             nxt = __sync_fetch_and_or(&x->next[0], 1);
+            offset++;
+
         }while ( (x = get_unmarked_ref(nxt)) && is_marked_ref(nxt) );
 
         assert(!is_marked_ref(x));
         
-        /* If no inserting node was traversed, then use the latest 
-         * deleted node as the new lowest-level head pointed node
-         * candidate. */
-        if (newhead == NULL) newhead = x;
-
-        /* if the offset is big enough, try to update the head node and
-         * perform memory reclamation */
         if (offset <= this->BOUND_OFFSET){
             return x;
         }
+        if (newhead == NULL) newhead = x;
 
-        /* Optimization. Marginally faster */
         if (this->head->next[0] != obs_head){
             return x;
         } 
         
-        /* try to swing the lowest level head pointer to point to newhead,
-         * which is deleted */
         if (__sync_bool_compare_and_swap(&this->restructuring, false, true))
         {
             if (__sync_bool_compare_and_swap(&this->head->next[0], obs_head, get_marked_ref(newhead)))
             {
 
-                /* Update higher level pointers. */
                 restructure();
-
-                /* We successfully swung the upper head pointer. The nodes
-                 * between the observed head (obs_head) and the new bottom
-                 * level head pointed node (newhead) are guaranteed to be
-                 * non-live. Mark them for recycling. */
 
                 cur = get_unmarked_ref(obs_head);
                 while (cur != get_unmarked_ref(newhead)) {
