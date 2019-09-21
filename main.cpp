@@ -21,7 +21,6 @@ struct Vertex {
     unsigned int index;
     vector <pair<Vertex *, int>> neighbors; // Vertex + weight of edge
     unsigned int dist;
-
 };
 
 
@@ -481,35 +480,6 @@ public:
 
 };
 
-//////////////////////////////////////////////////////////////////
-/// DIJKSTRA ///
-
-// void relax(skiplist* queue, int* distances, std::mutex **offersLocks, Offer **offers, Vertex* vertex, int alt) {
-//     Offer* curr_offer;
-
-//     offersLocks[vertex->index]->lock();
-
-
-//     if (alt < distances[vertex->index]) {
-
-//         curr_offer = offers[vertex->index];
-//         if (curr_offer == NULL || alt < curr_offer->dist ){
-
-//             Offer* new_offer = new Offer(vertex, alt);//TODO added by Haran 29.8
-
-//             queue->insert(alt, vertex->index, 0);
-
-//             offers[vertex->index] = new_offer;
-
-//         }
-
-//     }
-//     offersLocks[vertex->index]->unlock();
-
-
-// }
-
-
 void relax(skiplist* queue, int* distances, std::mutex **offersLocks, Offer **offers, Vertex* vertex, int alt, int tid) {
     queue->OfferMgr->enterQuiescentState(tid);
     Offer* curr_offer;
@@ -517,13 +487,12 @@ void relax(skiplist* queue, int* distances, std::mutex **offersLocks, Offer **of
     if (alt < distances[vertex->index]) {
         curr_offer = offers[vertex->index];
         if (curr_offer == nullptr || alt < curr_offer->dist ){
-            // Offer* new_offer = queue->offer_mgr->template allocate<Offer>(tid); 
-            Offer * new_offer = new Offer();
+            Offer* new_offer = queue->OfferMgr->template allocate<Offer>(tid); 
+            // Offer * new_offer = new Offer();
             new_offer->vertex = vertex;
             new_offer->dist = alt; 
             queue->insert(alt, vertex->index, tid);
             if (offers[vertex->index]) {
-                // delete offers[vertex->index];
                 queue->OfferMgr->retire(tid, offers[vertex->index]);
             }
             offers[vertex->index] = new_offer;
@@ -532,10 +501,6 @@ void relax(skiplist* queue, int* distances, std::mutex **offersLocks, Offer **of
     offersLocks[vertex->index]->unlock();
     queue->OfferMgr->leaveQuiescentState(tid);
 }
-
-
-
-
 
 class threadInput {
 public:
@@ -562,14 +527,13 @@ public:
 };
 
 
-bool finished_work(bool done[], int size){
+bool finished_work(bool done[]){
 
-    for (int i = 0; i < size; i++){
+    for (int i = 0; i < THREADS_NUM; i++){
         if(!done[i]){
             return false;
         }
     }
-
     return true;
 }
 
@@ -578,9 +542,7 @@ void *parallelDijkstra(void *void_input) {
     bool * done = input->done;
     skiplist *queue = input->queue;
     Graph *G = input->G;
-
     Offer ** offers = input->offers;
-
     int tid = input->tid;
     Vertex *curr_v;
     Vertex *neighbor;
@@ -594,9 +556,7 @@ void *parallelDijkstra(void *void_input) {
     std::mutex **distancesLocks = input->distancesLocks;
 
     while (true) {
-
         if (queue->peekMin(tid) == false){
-            // assert(queue->size >= 0);
             done[tid] = true;
         }
 
@@ -605,62 +565,21 @@ void *parallelDijkstra(void *void_input) {
             shortest_distance_node = queue->deleteMin(tid);
         }
         else{
-            int k = 0;
-            while (done[k] && k < THREADS_NUM)
-                k++;
-            if (k == THREADS_NUM)
+             if (finished_work(done)){
                 return NULL;
-            else
+            }
+            else{
                 continue;
+            }
         }
         if (shortest_distance_node == nullptr) {
-            done[tid] = true;
-            int k = 0;
-            while (done[k] && k < THREADS_NUM)
-                k++;
-            if (k == THREADS_NUM)
+            if (finished_work(done)){
                 return NULL;
-            else
+            }
+            else{
                 continue;
+            }
         }
-        
-        // skiplistNode * shortest_distance_node = queue->deleteMin(tid);
-
-        // if (shortest_distance_node == nullptr) {
-
-        //     done[tid] = true;
-        //     if (finished_work(done, p)) {
-
-        //         //printf("tid %lu saw that all threads finished\n", tttt);//todo remove
-        //         pthread_mutex_lock(&done_work_lock);
-        //         pthread_cond_broadcast(&done_work_cond);
-        //         pthread_mutex_unlock(&done_work_lock);
-
-        //         return NULL;
-        //     } else {
-        //         //printf("tid %lu is going to sleep cause he doesn't have work to do\n", tttt);//todo remove
-        //         // TODO: sleep on condition variable
-
-        //         pthread_mutex_lock(&done_work_lock);
-        //         while (!finished_work(done, p))
-        //         {
-        //             pthread_cond_wait(&done_work_cond, &done_work_lock); //todo NEW
-        //         }
-        //         pthread_mutex_unlock(&done_work_lock);
-
-        //         if(finished_work(done, p)) {
-        //             //printf("tid %lu was awakened because there was no more work so he can go home\n", tttt);//todo remove
-        //             return NULL;
-        //         } else {
-        //             //printf("tid %lu was awakened because he needs to get back to work\n");
-        //             done[tid] = false;
-        //             continue;
-        //         }
-        //     }
-        // }
-
-
-
 
         done[tid] = false;
         curr_v = G->vertices[shortest_distance_node->value];
@@ -687,7 +606,7 @@ void *parallelDijkstra(void *void_input) {
             }
         }
 
-    }//end of while
+    }
 }
 
 
@@ -835,7 +754,7 @@ int main(int argc, char *argv[]) {
         v1->neighbors.push_back(make_pair(v2, weight));
         v2->neighbors.push_back(make_pair(v1, weight));
 
-    }   //when we reached here - done inserting all nodes to graph
+    }//done inserting all nodes to graph
 
     f.close();
     G->vertices[0]->dist = 0;
