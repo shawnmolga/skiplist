@@ -113,6 +113,7 @@ public:
     skiplistNode * tail;
     int levels = LEVELS;
     int BOUND_OFFSET = 100;
+    int size = 0;
     bool restructuring = false;
     record_manager<reclaimer_debra<>,allocator_new<>,pool_none<>,skiplistNode> * NodeMgr; 
     record_manager<reclaimer_debra<>,allocator_new<>,pool_none<>,Offer> * OfferMgr; 
@@ -129,7 +130,6 @@ public:
 
 
     ~skiplist(){
-        // delete OfferMgr;
         delete NodeMgr;
 
         skiplistNode * cur, * pred;
@@ -169,34 +169,130 @@ public:
         }
     }
 
+//     void restructure() {
+//         int i = this->levels - 1;
+//         skiplistNode * pred = this->head;
+//         skiplistNode * cur;
+//         skiplistNode * h;
+//         while (i > 0) {//todo - should this be i>=0???
+//             h = this->head->next[i];//record observed heada
+//             bool is_h_next_deleted = h->getIsNextNodeDeleted();
+//             skiplistNode *cur = pred->next[i]; //take one step forwarad
+//             bool is_cur_next_deleted = cur->getIsNextNodeDeleted();
+//             if (!is_marked_ref(h->next[0])) {
+//                 i--;
+//                 continue;
+//             }
+//             //traverse level until non-marked node is found
+//             while (is_marked_ref(cur->next[0])) {
+//                 pred = cur;
+//                 cur = pred->next[i];
+//                 is_cur_next_deleted = cur->getIsNextNodeDeleted();
+//             }
+//             if(!is_marked_ref(pred->next[0]))//todo - delete
+//                 std::cout<<"!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! "<<pred->key << ", "<<pred->value<<std::endl;
+// //            assert(pred->getIsNextNodeDeleted());//todo - delete
+
+//             if (__sync_bool_compare_and_swap(&this->head->next[i], h, cur)) { // if CAS fails, the same operation will be done for the same level
+//                 i--;
+//             }
+//         }
+//     }
+
     void restructure() {
-        int i = this->levels - 1;
-        skiplistNode * pred = this->head;
-        skiplistNode * cur;
-        skiplistNode * h;
+        skiplistNode *pred, *cur, *h;
+        int i = LEVELS - 1;
+
+        pred = this->head;
         while (i > 0) {
-            h = this->head->next[i];
-            skiplistNode *cur = pred->next[i]; 
+            /* the order of these reads must be maintained */
+            h = this->head->next[i]; /* record observed head */
+            cur = pred->next[i]; /* take one step forward from pred */
             if (!is_marked_ref(h->next[0])) {
                 i--;
                 continue;
             }
-            while (is_marked_ref(cur->next[0])) {
+            /* traverse level until non-marked node is found
+             * pred will always have its delete flag set
+             */
+            while(is_marked_ref(cur->next[0])) {
                 pred = cur;
                 cur = pred->next[i];
             }
-            if(!is_marked_ref(pred->next[0])){//todo - delete}
-                assert(pred->getIsNextNodeDeleted());//todo - delete
-            }
-
-            if (__sync_bool_compare_and_swap(&this->head->next[i], h, cur)) { // if CAS fails, the same operation will be done for the same level
+            assert(is_marked_ref(pred->next[0]));
+        
+            /* swing head pointer */
+            if (__sync_bool_compare_and_swap(&this->head->next[i],h,cur))
                 i--;
-            }
         }
     }
 
+//     skiplistNode *deleteMin(int tid) {
+//         skiplistNode *x = this->head;
+//         int offset = 0;
+//         skiplistNode *newHead = nullptr;
+//         skiplistNode *observedHead_marked = x->getNextNodeMarked(0); //first real head (after sentinel)
+//         skiplistNode * observedHead_unmarked = x->getNextNodeUnmarked(0);
+//         bool isNextNodeDeleted;
+//         skiplistNode *next;
+//         skiplistNode * cur;
+//         do {
+//             offset++;
+
+//             // next = x->getNextNodeUnmarked(0);
+
+//             next = x->next[0];
+
+
+//             isNextNodeDeleted = x->getIsNextNodeDeleted();
+//             if (get_unmarked_ref(next) == this->tail) { //if queue is empty - return
+//                 this->sizelock->lock();
+//                 this->size = 0;
+//                 this->sizelock->unlock();
+//                 return nullptr;
+//             }
+//             if ( !newHead && x->isInserting) {
+//                 newHead = x; //head may not surpass pending insert, inserting node is "newhead".
+//             }
+//             next = __sync_fetch_and_or(&x->next[0], 1); //logical deletion of successor to x.
+// //            std::cout<<"node key = " << x->key << ", value = "<< x->value<<std::endl;
+// //            assert(x->getIsNextNodeDeleted());
+//             // x = next;
+//         } while ((x = get_unmarked_ref(next)) && is_marked_ref(next));
+//         int v = x->value;
+
+
+//         this->sizelock->lock();
+//         if (this->size > 0)
+//             this->size--;//todo - delete this
+//         this->sizelock->unlock();
+
+//        if (!newHead) {
+//             newHead = x;
+//         }
+
+//         // std::cout<<"offset = "<<offset<<std::endl;
+
+//         if (offset <= this->BOUND_OFFSET) {//if the offset is big enough - try to perform memory reclamation
+//             return x;
+//         }
+ 
+
+//         if (__sync_bool_compare_and_swap(&this->head->next[0], observedHead_marked, newHead)) {
+//         // if (__sync_bool_compare_and_swap(&this->restructuring, false, true)) {
+
+//             restructure();
+//             // if(!__sync_bool_compare_and_swap(&this->restructuring, true, false)){
+//                 // std::cout<<"BAD BAD BAD!!!"<<std::endl;
+//             // }
+//         }
+//         return x;
+//     }
+
+
     
     skiplistNode *deleteMin(int tid) {
+
         skiplistNode * x = this->head;
         int offset = 0;
         skiplistNode * newhead = NULL;
@@ -204,35 +300,71 @@ public:
         skiplistNode *cur;
         int lvl = 0;
         skiplistNode * nxt = NULL;
+
         do {
+            offset++;
+
+            /* expensive, high probability that this cache line has
+             * been modified */
             nxt = x->next[0];
+
+            // tail cannot be deleted
             if (get_unmarked_ref(nxt) == this->tail) {
                 return nullptr;
             }
-            if (newhead == NULL && x->isInserting){
-                newhead = x;
-            }
+
+            /* Do not allow head to point past a node currently being
+             * inserted. This makes the lock-freedom quite a theoretic
+             * matter. */
+            if (newhead == NULL && x->isInserting) newhead = x;
+
+            /* optimization */
+            if (is_marked_ref(nxt)) continue;
+            /* the marker is on the preceding pointer */
+            /* linearisation point deletemin */
             nxt = __sync_fetch_and_or(&x->next[0], 1);
-            offset++;
         }while ( (x = get_unmarked_ref(nxt)) && is_marked_ref(nxt) );
+
         assert(!is_marked_ref(x));
+        
+        /* If no inserting node was traversed, then use the latest 
+         * deleted node as the new lowest-level head pointed node
+         * candidate. */
+        if (newhead == NULL) newhead = x;
+
+        /* if the offset is big enough, try to update the head node and
+         * perform memory reclamation */
         if (offset <= this->BOUND_OFFSET){
             return x;
         }
-        if (newhead == NULL) {
-            newhead = x;
-        }
+
+        /* Optimization. Marginally faster */
+        if (this->head->next[0] != obs_head){
+            return x;
+        } 
+        
+        /* try to swing the lowest level head pointer to point to newhead,
+         * which is deleted */
         if (__sync_bool_compare_and_swap(&this->restructuring, false, true))
         {
             if (__sync_bool_compare_and_swap(&this->head->next[0], obs_head, get_marked_ref(newhead)))
             {
+
+                /* Update higher level pointers. */
                 restructure();
+
+                /* We successfully swung the upper head pointer. The nodes
+                 * between the observed head (obs_head) and the new bottom
+                 * level head pointed node (newhead) are guaranteed to be
+                 * non-live. Mark them for recycling. */
+
                 cur = get_unmarked_ref(obs_head);
                 while (cur != get_unmarked_ref(newhead)) {
                     nxt = get_unmarked_ref(cur->next[0]);
                     assert(is_marked_ref(cur->next[0]));
                     if (cur){
                         NodeMgr->retire(tid, cur);
+
                     }
                     cur = nxt;
                 }
@@ -240,11 +372,12 @@ public:
             }
             if (!__sync_bool_compare_and_swap(&this->restructuring, true, false)){
                 std::cout<<"bAD BAD BAD"<<std::endl;
+
             }
         }
+     
         return x;
     }
-
 
     bool peekMin(int tid) {
         skiplistNode * x = this->head;
@@ -267,6 +400,7 @@ public:
         }while ( (x = get_unmarked_ref(nxt)) && is_marked_ref(nxt) );
         return true;
     }
+
 
 
     void insert(int key, int val, int tid) {
@@ -306,14 +440,15 @@ public:
 
     }
 
-};
+};//skiplist
 
 
 class Graph {
 public:
-    int source;
+    int source;//why is this needed?
     vector<Vertex *> vertices;
-    std::mutex **offerLock; 
+    std::mutex **offerLock; //used to prevent multiple threads from concurrently changing the priority (distance) to the same node.
+    Graph() {};
 
     ~Graph() {
         for(int i = 0; i < vertices.size(); i++){
@@ -332,13 +467,10 @@ void relax(skiplist* queue, int* distances, std::mutex **offersLocks, Offer **of
         curr_offer = offers[vertex->index];
         if (curr_offer == nullptr || alt < curr_offer->dist ){
             Offer* new_offer = queue->OfferMgr->template allocate<Offer>(tid); 
-            // Offer * new_offer = new Offer();
-            
             new_offer->vertex = vertex;
             new_offer->dist = alt; 
             queue->insert(alt, vertex->index, tid);
             if (offers[vertex->index]) {
-                delete offers[vertex->index];
                 queue->OfferMgr->retire(tid, offers[vertex->index]);
             }
             offers[vertex->index] = new_offer;
