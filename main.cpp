@@ -1,4 +1,3 @@
-
 #include <iostream>
 #include <atomic>
 #include <assert.h>
@@ -12,41 +11,48 @@
 #include "recordmgr/record_manager.h"
 #include <chrono>
 
-
 using namespace std;
 
-
-#define LEVELS 30//log n (10^7)
+#define LEVELS 30
 #define THREADS_NUM 80
 
 
+struct Vertex {
+    unsigned int index;
+    vector <pair<Vertex *, int>> neighbors; // Vertex + weight of edge
+    unsigned int dist;
+
+};
+
+
+class Offer {
+public :
+    Vertex *vertex;
+    int dist;
+
+    Offer(Vertex *vertex, int dist) : vertex(vertex), dist(dist) {}
+    Offer(){};
+
+};
+
 int getRandomHeight(){
     unsigned int r = rand();
-
     r = r * 1103515245 + 12345;
     r &= (1u << (LEVELS - 1)) - 1;
-        /* uniformly distributed bits => geom. dist. level, p = 0.5 */
     int level = __builtin_ctz(r) + 1;
-
-    if (!(1 <= level && level <= 32)) {
+    if (!(1 <= level && level <= LEVELS)) {
         level = getRandomHeight();
-        assert(1 <= level && level <= 32);
+        assert(1 <= level && level <= LEVELS);
         return level;
     }
-
-
-    assert(1 <= level && level <= 32);
-
-
+    assert(1 <= level && level <= LEVELS);
     return level;
 }
 
 
-
-
+/*array of pointers , entry i points to "next" skiplistNode on level i
+the last bit in next[i] indicates whether or not next[i] is deleted or not */
 class skiplistNode {
-    /*array of pointers , entry i points to "next" skiplistNode on level i
-      the last bit in next[i] indicates whether or not next[i] is deleted or not */
 public:
     bool isInserting;
     int key;
@@ -62,9 +68,8 @@ public:
     }
 
     skiplistNode() {}
+
     ~skiplistNode(){}
-
-
 
     bool getIsNextNodeDeleted() {
         if (this->next.size() > 0) {
@@ -111,14 +116,13 @@ public:
     int BOUND_OFFSET = 100;
     int size = 0;
     bool restructuring = false;
-    record_manager<reclaimer_debra<>,allocator_new<>,pool_none<>,skiplistNode> * mgr; //todo - check DEBRA
-
-
+    record_manager<reclaimer_debra<>,allocator_new<>,pool_none<>,skiplistNode> * NodeMgr; 
+    record_manager<reclaimer_debra<>,allocator_new<>,pool_none<>,Offer> * OfferMgr; 
 
 
     skiplist(int levels) {
-        mgr = new record_manager<reclaimer_debra<>,allocator_new<>,pool_none<>,skiplistNode>(THREADS_NUM,SIGQUIT);
-
+        NodeMgr = new record_manager<reclaimer_debra<>,allocator_new<>,pool_none<>,skiplistNode>(THREADS_NUM,SIGQUIT);
+        OfferMgr = new record_manager<reclaimer_debra<>,allocator_new<>,pool_none<>,Offer>(THREADS_NUM,SIGQUIT);
         this->tail = new skiplistNode(INT_MAX, 0, LEVELS);
         this->tail->isInserting = false;
         this->head = new skiplistNode(INT_MIN, 0, LEVELS, this->tail);
@@ -128,7 +132,7 @@ public:
 
     ~skiplist(){
         // delete offer_mgr;
-        delete mgr;
+        delete NodeMgr;
 
         skiplistNode * cur, * pred;
         cur = this->head;
@@ -144,47 +148,15 @@ public:
     }
 
 
-  ///unit testing///
-
-    void num_of_elements_in_level(){
-        skiplistNode * node = this->head;
-        for (int i = 0; i < LEVELS; i++) {
-            int counter = 0;
-            skiplistNode *nextNode = node->getNextNodeUnmarked(i);
-            bool isNextDeleted = node->getIsNextNodeDeleted();
-            bool to_continue = true;
-            while (to_continue) {
-                if (!isNextDeleted)
-                    counter++;
-                isNextDeleted = nextNode->getIsNextNodeDeleted();
-                nextNode = nextNode->getNextNodeUnmarked(i);
-                if (!nextNode) {
-                    to_continue = false;
-                } else
-                    to_continue = true;
-            }
-            std::cout<<"LEVEL " << i << ", elements = " << counter << std::endl;
-        }
-    }
-
-  /////////////////
-
-
     void locatePreds(int k, std::vector<skiplistNode *> &preds, std::vector<skiplistNode *> &succs,
                      skiplistNode *del, int tid) {
         int i = this->levels - 1;
-        skiplistNode * pred;
-        pred = this->head;
-
+        skiplistNode * pred = this->head;
         while (i >= 0) {
             skiplistNode * cur = pred->getNextNodeUnmarked(i);
             int isCurDeleted = pred->getIsNextNodeDeleted();
             bool isNextDeleted = cur->getIsNextNodeDeleted();
-
-            // auto t1 = std::chrono::high_resolution_clock::now();
-            int j = 0;
             while (cur->key < k || isNextDeleted || ((i == 0) && isCurDeleted)) {
-                j++;
                 if ((isCurDeleted) && i == 0) { //if there is a level 0 node deleted without a "delete flag" on:
                     del = cur;
                 }
@@ -193,11 +165,6 @@ public:
                 isCurDeleted = pred->getIsNextNodeDeleted();
                 isNextDeleted = cur->getIsNextNodeDeleted();
             }
-            // auto t2 = std::chrono::high_resolution_clock::now();
-            // auto duration = std::chrono::duration_cast<std::chrono::milliseconds>( t2 - t1 ).count();
-//            if(tid == 1)
-//                std::cout<<"while loop number " << i << " took " << duration <<" milliseconds, iterations = "<< j <<", size = "<<this->size<<std::endl;
-
             preds[i] = pred;
             succs[i] = cur;
             i--;
@@ -235,32 +202,32 @@ public:
 //     }
 
     void restructure() {
-    skiplistNode *pred, *cur, *h;
-    int i = LEVELS - 1;
+        skiplistNode *pred, *cur, *h;
+        int i = LEVELS - 1;
 
-    pred = this->head;
-    while (i > 0) {
-        /* the order of these reads must be maintained */
-        h = this->head->next[i]; /* record observed head */
-        cur = pred->next[i]; /* take one step forward from pred */
-        if (!is_marked_ref(h->next[0])) {
-            i--;
-            continue;
+        pred = this->head;
+        while (i > 0) {
+            /* the order of these reads must be maintained */
+            h = this->head->next[i]; /* record observed head */
+            cur = pred->next[i]; /* take one step forward from pred */
+            if (!is_marked_ref(h->next[0])) {
+                i--;
+                continue;
+            }
+            /* traverse level until non-marked node is found
+             * pred will always have its delete flag set
+             */
+            while(is_marked_ref(cur->next[0])) {
+                pred = cur;
+                cur = pred->next[i];
+            }
+            assert(is_marked_ref(pred->next[0]));
+        
+            /* swing head pointer */
+            if (__sync_bool_compare_and_swap(&this->head->next[i],h,cur))
+                i--;
         }
-        /* traverse level until non-marked node is found
-         * pred will always have its delete flag set
-         */
-        while(is_marked_ref(cur->next[0])) {
-            pred = cur;
-            cur = pred->next[i];
-        }
-        assert(is_marked_ref(pred->next[0]));
-    
-        /* swing head pointer */
-        if (__sync_bool_compare_and_swap(&this->head->next[i],h,cur))
-            i--;
     }
-}
 
 //     skiplistNode *deleteMin(int tid) {
 //         skiplistNode *x = this->head;
@@ -327,7 +294,6 @@ public:
 
     
     skiplistNode *deleteMin(int tid) {
-
         int v = 0;
         skiplistNode *x, *nxt, *obs_head = NULL, *newhead, *cur;
         int offset, lvl;
@@ -400,7 +366,7 @@ public:
                     nxt = get_unmarked_ref(cur->next[0]);
                     assert(is_marked_ref(cur->next[0]));
                     if (cur){
-                        mgr->retire(tid, cur);
+                        NodeMgr->retire(tid, cur);
 
                         // std::cout<<cur<<std::endl;
                         // delete cur;
@@ -421,7 +387,6 @@ public:
 
 
     bool peekMin(int tid) {
-
         int v = 0;
         skiplistNode *x, *nxt, *obs_head = NULL, *newhead, *cur;
         int offset, lvl;
@@ -460,21 +425,10 @@ public:
     }
 
 
-
-
-
-
-
     void insert(int key, int val, int tid) {
-        mgr->enterQuiescentState(tid);
-
-
+        NodeMgr->enterQuiescentState(tid);
         int height = getRandomHeight();
-
-        // skiplistNode *newNode = new skiplistNode(key, val, height);
-
-        skiplistNode* newNode = mgr->template allocate<skiplistNode>(tid);
-        
+        skiplistNode* newNode = NodeMgr->template allocate<skiplistNode>(tid);
         newNode->key=key;
         newNode->value=val;
         newNode->levels = height;
@@ -482,21 +436,15 @@ public:
         for (int i = 0; i < levels; i++) {
             newNode->next.push_back(nullptr);
         }
-
         std::vector < skiplistNode * > preds(this->levels, nullptr);
         std::vector < skiplistNode * > succs(this->levels, nullptr);
-
         skiplistNode *del = nullptr;
-
         int while_counter = 0;
         do {
             this->locatePreds(key, preds, succs, del, tid);
             newNode->next[0] = succs[0];
         } while (!__sync_bool_compare_and_swap(&preds[0]->next[0], succs[0], newNode));
-
-
         int i = 1;
-
         while (i < height) { //insert node at higher levels (bottoms up)
             newNode->next[i] = succs[i];
             if (newNode->getIsNextNodeDeleted() || succs[i]->getIsNextNodeDeleted()|| succs[i] == del)
@@ -509,48 +457,12 @@ public:
                     break; //new has been deleted
             }
         }
-        
-
         newNode->isInserting = false; //allow batch deletion past this node
-        mgr->leaveQuiescentState(tid);
+        NodeMgr->leaveQuiescentState(tid);
 
-    }
-
-    void printSkipList() {
-        std::cout << "--------------------------------------------------" << std::endl;
-        std::cout << "printing skiplist, levels = "<< this->levels << std::endl;
-        skiplistNode *node = this->head;
-        for (int i = 0; i < this->levels; i++) {
-            std::cout << "level " << i << " , head ";
-            skiplistNode *nextNode = node->getNextNodeUnmarked(i);
-            bool isNextDeleted = node->getIsNextNodeDeleted();
-            bool to_continue = true;
-            while (to_continue) {
-                if (isNextDeleted && i == 0)
-                    std::cout << "~";
-                std::cout << "(" << nextNode->value << ", " << nextNode->key << ") ";
-                isNextDeleted = nextNode->getIsNextNodeDeleted();
-                nextNode = nextNode->getNextNodeUnmarked(i);
-                if (!nextNode) {
-                    to_continue = false;
-                } else
-                    to_continue = true;
-            }
-            std::cout << std::endl;
-        }
-        std::cout << "--------------------------------------------------" << std::endl;
     }
 
 };//skiplist
-
-
-struct Vertex {
-    unsigned int index;
-    vector <pair<Vertex *, int>> neighbors; // Vertex + weight of edge
-    unsigned int dist;
-    pair<int, int> location; // location = queue index, heap index
-
-};
 
 
 class Graph {
@@ -566,16 +478,6 @@ public:
                 delete vertices[i];
         }
     };
-
-};
-
-class Offer {
-public :
-    Vertex *vertex;
-    int dist;
-
-    Offer(Vertex *vertex, int dist) : vertex(vertex), dist(dist) {}
-    Offer(){};
 
 };
 
@@ -609,7 +511,7 @@ public :
 
 
 void relax(skiplist* queue, int* distances, std::mutex **offersLocks, Offer **offers, Vertex* vertex, int alt, int tid) {
-    // queue->offer_mgr->enterQuiescentState(tid);
+    queue->OfferMgr->enterQuiescentState(tid);
     Offer* curr_offer;
     offersLocks[vertex->index]->lock();
     if (alt < distances[vertex->index]) {
@@ -621,14 +523,14 @@ void relax(skiplist* queue, int* distances, std::mutex **offersLocks, Offer **of
             new_offer->dist = alt; 
             queue->insert(alt, vertex->index, tid);
             if (offers[vertex->index]) {
-                delete offers[vertex->index];
-                // queue->offer_mgr->retire(tid, offers[vertex->index]);
+                // delete offers[vertex->index];
+                queue->OfferMgr->retire(tid, offers[vertex->index]);
             }
             offers[vertex->index] = new_offer;
         }
     }
     offersLocks[vertex->index]->unlock();
-    // queue->offer_mgr->leaveQuiescentState(tid);
+    queue->OfferMgr->leaveQuiescentState(tid);
 }
 
 
@@ -686,8 +588,6 @@ void *parallelDijkstra(void *void_input) {
     int curr_dist = -1;
     int alt;
     int weight;
-    int num_of_threads = 80;
-    int p = num_of_threads;
 
     int* distances = input->distances;
     std::mutex ** offersLocks = input->offersLocks;
@@ -706,9 +606,9 @@ void *parallelDijkstra(void *void_input) {
         }
         else{
             int k = 0;
-            while (done[k] && k < num_of_threads)
+            while (done[k] && k < THREADS_NUM)
                 k++;
-            if (k == num_of_threads)
+            if (k == THREADS_NUM)
                 return NULL;
             else
                 continue;
@@ -716,9 +616,9 @@ void *parallelDijkstra(void *void_input) {
         if (shortest_distance_node == nullptr) {
             done[tid] = true;
             int k = 0;
-            while (done[k] && k < num_of_threads)
+            while (done[k] && k < THREADS_NUM)
                 k++;
-            if (k == num_of_threads)
+            if (k == THREADS_NUM)
                 return NULL;
             else
                 continue;
@@ -793,19 +693,14 @@ void *parallelDijkstra(void *void_input) {
 
 
 void dijkstra_shortest_path(Graph *G) {
-    int num_of_theads = 80; //todo - optimize this
     skiplist *queue = new skiplist(LEVELS); //global
     Offer *min_offer;
     Vertex *curr_v;
-    // int * distances = (int * )malloc(sizeof(int)*G->vertices.size());
     int distances[G->vertices.size()];
-    // std::vector < Offer * > offers(G->vertices.size(), nullptr);
     Offer *offers[G->vertices.size()];
 
-
-    // bool * done = (bool * )malloc(sizeof(bool)*num_of_theads);
-    bool done[num_of_theads];
-    for (int i = 0; i < num_of_theads; i++){
+    bool done[THREADS_NUM];
+    for (int i = 0; i < THREADS_NUM; i++){
         done[i]=false;
     }
 
@@ -822,19 +717,19 @@ void dijkstra_shortest_path(Graph *G) {
     }
 
     queue->insert(0, 0, 0);//insert first element to queue. First element: key (dist) = 0, value(index) = 0 (this is the soure)
-    pthread_t threads[num_of_theads];
+    pthread_t threads[THREADS_NUM];
 
     std::vector<threadInput * > to_delete;
 
 
-    for (int i = 0; i < num_of_theads; i++) {
+    for (int i = 0; i < THREADS_NUM; i++) {
         done[i] = false; //set thread[i] to 'not-done'
         threadInput *input = new threadInput(done, queue, G, distances, offersLocks, distancesLocks, offers, i);
         to_delete.push_back(input);
         pthread_create(&threads[i], NULL, &parallelDijkstra, (void *) input);
     }
 
-    for (long i = 0; i < num_of_theads; i++)
+    for (long i = 0; i < THREADS_NUM; i++)
         (void) pthread_join(threads[i], NULL);
 
     for (auto p : to_delete){
@@ -871,7 +766,6 @@ int main(int argc, char *argv[]) {
         exit(1);
     }
    string pathToFile = argv[1];
-    // std::string pathToFile = "./edges.txt";
     ifstream f;
     f.open(pathToFile);
     if (!f) {
@@ -883,7 +777,6 @@ int main(int argc, char *argv[]) {
     string line;
     string firstLine;
     int source_index;
-    //Vertex* source = new Vertex();
     char *n;
 
     getline(f, firstLine); //get the first line of # nodes, # edges and source node
