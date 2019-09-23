@@ -1,0 +1,26 @@
+skiplist:
+
+Main classes:
+1. SkiplistNode: The single Node in the skip list, holds information regarding one vertex in the graph. 
+int Key - the distance between the vertex this node is representing, and the source node. 
+Int Value - the vertex index
+* note - there can be duplicate values, meaning more than one node per vertex in the skiplist.
+Bool isInserting - is the node in the process of insertion (in the process of updating the pointers of all levels of skiplist).
+levels - the number of levels this node appears in (the node appears in all levels from 0 to “levels”, where 0<“levels”<30)
+vector<skiplistNode *> next - a vector with all the nodes that are next in the skiplist. Each vector entry represents a level.  whether or not the next node is deleted or not is stored in the last bit of the address in level 0 of the skiplist, meaning entry 0 of the vector.
+
+2. Class Skiplist:
+skiplistNode * head - sentinel head of the skiplist, key is INT_MIN (always the smallest key)
+skiplistNode * tail - sentinel tail of the skiplist, key is INT_MAX (always the largest key)
+The skiplist has 30 levels 
+Int BOUNT_OFFSET - the number of “logically deleted” nodes allowed in the skiplist before actually deleted. This is set to 100.
+Bool restructuring - only one thread can “restructure” the skiplist and actually delete nodes (as opposed to logically deleting them). This variable is only accessed with atomic functions throughout
+The code.
+Debra memory managers
+
+* note - there are two memory managers in the skiplist, one for the class of SkiplistNode and one for the class of Offers, because both are dynamically allocated. There is an inner library bug that occurs when trying to delete both managers (internal double free) and therefore only one is deleted. This will cause memory leaks and has been discussed and approved by the teaching assistant.
+
+
+
+
+
