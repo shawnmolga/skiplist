@@ -81,11 +81,6 @@ public:
             return false;
     }
 
-    /* sets the last bit of the address to 1*/
-    void setIsNextNodeDeleted(int level) {
-        this->next[level] = ((skiplistNode *) (((uintptr_t)(this->next[level])) | 1));
-    }
-
     /* returns next node when the last bit is always 0 (real address) */
     skiplistNode *getNextNodeMarked(int level) {
         return this->next[level];
@@ -117,7 +112,6 @@ public:
     skiplistNode * tail;
     int levels = LEVELS;
     int BOUND_OFFSET = 100;
-    int size = 0;
     bool restructuring = false;
     record_manager<reclaimer_debra<>,allocator_new<>,pool_none<>,skiplistNode> * NodeMgr; 
     record_manager<reclaimer_debra<>,allocator_new<>,pool_none<>,Offer> * OfferMgr; 
@@ -281,7 +275,8 @@ public:
                 newhead = x;
             }
             offset++;
-        }while ( (x = getNodeUnmarked(nxt)) && isNodeDeleted(nxt) );
+            x = getNodeUnmarked(nxt);
+        } while (isNodeDeleted(nxt));
         return true;
     }
 
