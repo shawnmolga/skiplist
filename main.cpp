@@ -18,6 +18,7 @@ using namespace std;
 
 
 struct Vertex {
+public:    
     unsigned int index;
     vector <pair<Vertex *, int>> neighbors; // Vertex + weight of edge
     unsigned int dist;
@@ -48,9 +49,6 @@ int getRandomHeight(){
     return level;
 }
 
-
-/*array of pointers , entry i points to "next" skiplistNode on level i
-the last bit in next[i] indicates whether or not next[i] is deleted or not */
 class skiplistNode {
 public:
     bool isInserting;
@@ -99,13 +97,19 @@ public:
         return (skiplistNode *) (((uintptr_t)(this->next[level])) & ~1);
     };
 
-
 };
 
-#define get_marked_ref(_p)      ((skiplistNode *)(((uintptr_t)(_p)) | 1))
-#define get_unmarked_ref(_p)    ((skiplistNode *)(((uintptr_t)(_p)) & ~1))
-#define is_marked_ref(_p)       (((uintptr_t)(_p)) & 1)
+bool isNodeDeleted(skiplistNode * node){
+    return (((uintptr_t)(node)) & 1);
+}
 
+skiplistNode * getNodeUnmarked(skiplistNode * node){
+    return ((skiplistNode *)(((uintptr_t)(node)) & ~1));
+}
+
+skiplistNode * getNodeMarked(skiplistNode * node){
+    return ((skiplistNode *)(((uintptr_t)(node)) | 1));   
+}
 
 class skiplist {
 public:
@@ -136,7 +140,7 @@ public:
         cur = this->head;
         while (cur != this->tail) {
             pred = cur;
-            cur = get_unmarked_ref(pred->next[0]);
+            cur = getNodeUnmarked(pred->next[0]);
             if (pred){
                 delete pred;
             }
@@ -180,82 +184,19 @@ public:
         while (i > 0) {
             h = this->head->next[i]; /* record observed head */
             cur = pred->next[i]; /* take one step forward from pred */
-            if (!is_marked_ref(h->next[0])) {
+            if (!isNodeDeleted(h->next[0])) {
                 i--;
                 continue;
             }
-            while(is_marked_ref(cur->next[0])) {
+            while(isNodeDeleted(cur->next[0])) {
                 pred = cur;
                 cur = pred->next[i];
             }
-            assert(is_marked_ref(pred->next[0]));
+            assert(isNodeDeleted(pred->next[0]));
             if (__sync_bool_compare_and_swap(&this->head->next[i],h,cur))
                 i--;
         }
     }
-
-//     skiplistNode *deleteMin(int tid) {
-//         skiplistNode *x = this->head;
-//         int offset = 0;
-//         skiplistNode *newHead = nullptr;
-//         skiplistNode *observedHead_marked = x->getNextNodeMarked(0); //first real head (after sentinel)
-//         skiplistNode * observedHead_unmarked = x->getNextNodeUnmarked(0);
-//         bool isNextNodeDeleted;
-//         skiplistNode *next;
-//         skiplistNode * cur;
-//         do {
-//             offset++;
-
-//             // next = x->getNextNodeUnmarked(0);
-
-//             next = x->next[0];
-
-
-//             isNextNodeDeleted = x->getIsNextNodeDeleted();
-//             if (get_unmarked_ref(next) == this->tail) { //if queue is empty - return
-//                 this->sizelock->lock();
-//                 this->size = 0;
-//                 this->sizelock->unlock();
-//                 return nullptr;
-//             }
-//             if ( !newHead && x->isInserting) {
-//                 newHead = x; //head may not surpass pending insert, inserting node is "newhead".
-//             }
-//             next = __sync_fetch_and_or(&x->next[0], 1); //logical deletion of successor to x.
-// //            std::cout<<"node key = " << x->key << ", value = "<< x->value<<std::endl;
-// //            assert(x->getIsNextNodeDeleted());
-//             // x = next;
-//         } while ((x = get_unmarked_ref(next)) && is_marked_ref(next));
-//         int v = x->value;
-
-
-//         this->sizelock->lock();
-//         if (this->size > 0)
-//             this->size--;//todo - delete this
-//         this->sizelock->unlock();
-
-//        if (!newHead) {
-//             newHead = x;
-//         }
-
-//         // std::cout<<"offset = "<<offset<<std::endl;
-
-//         if (offset <= this->BOUND_OFFSET) {//if the offset is big enough - try to perform memory reclamation
-//             return x;
-//         }
- 
-
-//         if (__sync_bool_compare_and_swap(&this->head->next[0], observedHead_marked, newHead)) {
-//         // if (__sync_bool_compare_and_swap(&this->restructuring, false, true)) {
-
-//             restructure();
-//             // if(!__sync_bool_compare_and_swap(&this->restructuring, true, false)){
-//                 // std::cout<<"BAD BAD BAD!!!"<<std::endl;
-//             // }
-//         }
-//         return x;
-//     }
-
 
     
     skiplistNode *deleteMin(int tid) {
@@ -270,43 +211,41 @@ public:
 
         do {
             nxt = x->next[0];
-
-            if (get_unmarked_ref(nxt) == this->tail) {
+            if (getNodeUnmarked(nxt) == this->tail) {
                 return nullptr;
             }
             if (newhead == NULL && x->isInserting){
                 newhead = x;
             }
-
-            if (is_marked_ref(nxt)) continue; //todo - check if deleteing this
-
             nxt = __sync_fetch_and_or(&x->next[0], 1);
             offset++;
+            x = getNodeUnmarked(nxt);
 
-        }while ( (x = get_unmarked_ref(nxt)) && is_marked_ref(nxt) );
+        } while ( isNodeDeleted(nxt) );
 
-        assert(!is_marked_ref(x));
+        assert(!isNodeDeleted(x));
         
         if (offset <= this->BOUND_OFFSET){
             return x;
         }
-        if (newhead == NULL) newhead = x;
-
+        if (newhead == NULL){
+            newhead = x;
+        }
         if (this->head->next[0] != obs_head){
             return x;
         } 
         
         if (__sync_bool_compare_and_swap(&this->restructuring, false, true))
         {
-            if (__sync_bool_compare_and_swap(&this->head->next[0], obs_head, get_marked_ref(newhead)))
+            if (__sync_bool_compare_and_swap(&this->head->next[0], obs_head, getNodeMarked(newhead)))
             {
 
                 restructure();
 
-                cur = get_unmarked_ref(obs_head);
-                while (cur != get_unmarked_ref(newhead)) {
-                    nxt = get_unmarked_ref(cur->next[0]);
-                    assert(is_marked_ref(cur->next[0]));
+                cur = getNodeUnmarked(obs_head);
+                while (cur != getNodeUnmarked(newhead)) {
+                    nxt = getNodeUnmarked(cur->next[0]);
+                    assert(isNodeDeleted(cur->next[0]));
                     if (cur){
                         NodeMgr->retire(tid, cur);
 
@@ -335,14 +274,14 @@ public:
 
          do {
             nxt = x->next[0];
-            if (get_unmarked_ref(nxt) == this->tail) {
+            if (getNodeUnmarked(nxt) == this->tail) {
                 return false;
             }
             if (newhead == NULL && x->isInserting){
                 newhead = x;
             }
             offset++;
-        }while ( (x = get_unmarked_ref(nxt)) && is_marked_ref(nxt) );
+        }while ( (x = getNodeUnmarked(nxt)) && isNodeDeleted(nxt) );
         return true;
     }
 
@@ -385,12 +324,12 @@ public:
 
     }
 
-};//skiplist
+};
 
 
 class Graph {
 public:
-    int source;//why is this needed?
+    int source;
     vector<Vertex *> vertices;
     std::mutex **offerLock; //used to prevent multiple threads from concurrently changing the priority (distance) to the same node.
     Graph() {};
@@ -533,7 +472,6 @@ void *parallelDijkstra(void *void_input) {
 }
 
 
-
 void dijkstra_shortest_path(Graph *G) {
     skiplist *queue = new skiplist(LEVELS); //global
     Offer *min_offer;
@@ -607,7 +545,7 @@ int main(int argc, char *argv[]) {
         std::cout<<"missing name of file"<<std::endl;
         exit(1);
     }
-   string pathToFile = argv[1];
+    string pathToFile = argv[1];
     ifstream f;
     f.open(pathToFile);
     if (!f) {
@@ -625,19 +563,37 @@ int main(int argc, char *argv[]) {
 
     // get source vertex
     char str[line.size() + 1];
+
     strncpy(str, firstLine.c_str(), firstLine.size() + 1);
+
     char *token = strtok(str, " ");
+
     int num_vertices = strtol(token, &n, 0);
+
+    if (num_vertices <= 0){
+        f.close();
+        delete G;
+        return 0;
+    }
+
     token = strtok(NULL, " ");
+
     int num_edges = strtol(token, &n, 0);
+
     token = strtok(NULL, " ");
+
     source_index = strtol(token, &n, 0);
+
     G->source = source_index;
+
     G->vertices.resize(num_vertices);
+
     Vertex *source_vertex = new Vertex();
     source_vertex->dist = 0;
     source_vertex->index = 0;
+    
     G->vertices[0] = source_vertex;
+
     for (int i = 1; i < num_vertices; i++) {
         G->vertices[i] = new Vertex();
     }
